@@ -6,6 +6,10 @@ obj/
 *.dll
 *.pdb
 
+# Fixed offline build inputs
+!third_party/NAudio/2.3.0/NAudio.Core.dll
+!third_party/NAudio/2.3.0/NAudio.Wasapi.dll
+
 # Visual Studio
 .vs/
 *.user
