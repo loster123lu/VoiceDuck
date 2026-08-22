@@ -25,12 +25,15 @@ namespace VoiceDuck
 
         private readonly AppSettings _settings;
         private readonly AudioEngineService _service;
+        private readonly MusicShareAudioEngine _musicShareService;
         private readonly bool _startHidden;
         private readonly Timer _uiTimer;
         private NotifyIcon _trayIcon;
         private Label _statusBadge;
         private Label _statusDetail;
         private Button _toggleButton;
+        private Button _musicShareButton;
+        private MusicShareForm _musicShareForm;
         private CheckedListBox _triggerList;
         private CheckedListBox _targetList;
         private CheckBox _duckAllCheck;
@@ -59,6 +62,7 @@ namespace VoiceDuck
             _settings = settings;
             _startHidden = startHidden;
             _service = new AudioEngineService(settings);
+            _musicShareService = new MusicShareAudioEngine();
 
             Text = "VoiceDuck · 智能语音闪避";
             ClientSize = new Size(930, 700);
@@ -95,6 +99,14 @@ namespace VoiceDuck
             {
                 _uiTimer.Stop();
                 _trayIcon.Visible = false;
+                if (_musicShareForm != null)
+                {
+                    _musicShareForm.PrepareForOwnerShutdown();
+                    _musicShareForm.Close();
+                    _musicShareForm.Dispose();
+                    _musicShareForm = null;
+                }
+                _musicShareService.Dispose();
                 _service.Dispose();
             };
         }
@@ -122,6 +134,11 @@ namespace VoiceDuck
             Label subtitle = CreateLabel("对方讲话时，自动为音乐让路", 9.5f, FontStyle.Regular, SubtleColor);
             subtitle.SetBounds(90, 51, 300, 24);
             header.Controls.Add(subtitle);
+
+            _musicShareButton = CreateButton("通话音乐分享", Color.FromArgb(49, 61, 80), TextColor);
+            _musicShareButton.SetBounds(464, 28, 116, 36);
+            _musicShareButton.Click += delegate { ShowMusicShare(); };
+            header.Controls.Add(_musicShareButton);
 
             _statusBadge = CreateLabel("已暂停", 9.5f, FontStyle.Bold, SubtleColor);
             _statusBadge.TextAlign = ContentAlignment.MiddleCenter;
@@ -227,7 +244,7 @@ namespace VoiceDuck
             Controls.Add(_minimizeCheck);
 
             Label footnote = CreateLabel(
-                "无需驱动 · 无需管理员权限 · 音量仅在本机调节",
+                "自动闪避无需驱动 · 音量仅在本机调节",
                 8.5f,
                 FontStyle.Regular,
                 Color.FromArgb(91, 103, 122));
@@ -245,7 +262,7 @@ namespace VoiceDuck
                 ApplySettings();
                 UpdateToggleAppearance();
             });
-            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("通话音乐分享", null, delegate { ShowMusicShare(); });
             menu.Items.Add("退出并恢复音量", null, delegate { Shutdown(); });
 
             _trayIcon = new NotifyIcon();
@@ -282,6 +299,9 @@ namespace VoiceDuck
         private void UiTimerTick(object sender, EventArgs e)
         {
             EngineStatus status = _service.GetStatus();
+            MusicShareStatus shareStatus = _musicShareService.GetStatus();
+            _musicShareButton.Text = shareStatus.Running ? "音乐分享 · 开启" : "通话音乐分享";
+            _musicShareButton.ForeColor = shareStatus.Running ? GreenColor : TextColor;
             if (!String.IsNullOrEmpty(status.LastError))
             {
                 SetStatus("音频错误", OrangeColor, status.LastError);
@@ -506,6 +526,15 @@ namespace VoiceDuck
             Show();
             WindowState = FormWindowState.Normal;
             Activate();
+        }
+
+        private void ShowMusicShare()
+        {
+            ShowMainWindow();
+            if (_musicShareForm == null || _musicShareForm.IsDisposed)
+                _musicShareForm = new MusicShareForm(_settings, _musicShareService, ApplySettings);
+            if (!_musicShareForm.Visible) _musicShareForm.Show(this);
+            _musicShareForm.Activate();
         }
 
         private void MainFormClosing(object sender, FormClosingEventArgs e)

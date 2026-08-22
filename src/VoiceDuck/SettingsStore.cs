@@ -13,6 +13,7 @@ namespace VoiceDuck
         private static readonly string FilePath = Path.Combine(FolderPath, "settings.json");
 
         public static string SettingsPath { get { return FilePath; } }
+        public static string DataFolderPath { get { return FolderPath; } }
 
         public static AppSettings Load()
         {

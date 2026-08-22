@@ -29,6 +29,10 @@ jobs:
           name: VoiceDuck-windows-portable
           path: |
             artifacts/VoiceDuck.exe
+            artifacts/NAudio.Core.dll
+            artifacts/NAudio.Wasapi.dll
             artifacts/README.md
             artifacts/LICENSE.txt
+            artifacts/THIRD_PARTY_NOTICES.md
+            artifacts/ThirdPartyLicenses/
           if-no-files-found: error

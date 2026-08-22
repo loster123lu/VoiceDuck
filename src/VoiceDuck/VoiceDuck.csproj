@@ -11,4 +11,19 @@
     <PlatformTarget>AnyCPU</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="NAudio.Core">
+      <HintPath>..\..\third_party\NAudio\2.3.0\NAudio.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="NAudio.Wasapi">
+      <HintPath>..\..\third_party\NAudio\2.3.0\NAudio.Wasapi.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\third_party\VBCABLE\VBCABLE_Driver_Pack45.zip">
+      <LogicalName>VoiceDuck.Resources.VBCABLE_Driver_Pack45.zip</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>

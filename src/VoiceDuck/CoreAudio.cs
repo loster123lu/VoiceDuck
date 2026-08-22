@@ -424,7 +424,11 @@ namespace VoiceDuck
     [Flags]
     internal enum DeviceStateMask : uint
     {
-        Active = 0x00000001
+        Active = 0x00000001,
+        Disabled = 0x00000002,
+        NotPresent = 0x00000004,
+        Unplugged = 0x00000008,
+        All = Active | Disabled | NotPresent | Unplugged
     }
 
     [Flags]
@@ -477,7 +481,7 @@ namespace VoiceDuck
     internal interface IMMDevice
     {
         [PreserveSig] int Activate(ref Guid iid, ClsCtx clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object instance);
-        [PreserveSig] int OpenPropertyStore(int access, out IntPtr properties);
+        [PreserveSig] int OpenPropertyStore(int access, out IPropertyStore properties);
         [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
         [PreserveSig] int GetState(out DeviceStateMask state);
     }

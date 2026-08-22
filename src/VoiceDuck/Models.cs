@@ -7,6 +7,7 @@ namespace VoiceDuck
     [DataContract]
     internal sealed class AppSettings
     {
+        [DataMember] public int SettingsVersion { get; set; }
         [DataMember] public bool Enabled { get; set; }
         [DataMember] public bool DuckAllOtherAudio { get; set; }
         [DataMember] public bool MinimizeToTray { get; set; }
@@ -16,6 +17,11 @@ namespace VoiceDuck
         [DataMember] public int HoldMs { get; set; }
         [DataMember] public int AttackMs { get; set; }
         [DataMember] public int ReleaseMs { get; set; }
+        [DataMember] public string ShareMicrophoneDevice { get; set; }
+        [DataMember] public string ShareMonitorDevice { get; set; }
+        [DataMember] public float ShareMicrophoneGain { get; set; }
+        [DataMember] public float ShareMusicGain { get; set; }
+        [DataMember] public string ShareMusicFile { get; set; }
         [DataMember] public List<string> TriggerApps { get; set; }
         [DataMember] public List<string> TargetApps { get; set; }
 
@@ -23,6 +29,7 @@ namespace VoiceDuck
         {
             return new AppSettings
             {
+                SettingsVersion = 2,
                 Enabled = false,
                 DuckAllOtherAudio = false,
                 MinimizeToTray = true,
@@ -32,6 +39,11 @@ namespace VoiceDuck
                 HoldMs = 1400,
                 AttackMs = 160,
                 ReleaseMs = 850,
+                ShareMicrophoneDevice = String.Empty,
+                ShareMonitorDevice = String.Empty,
+                ShareMicrophoneGain = 0.65f,
+                ShareMusicGain = 0.55f,
+                ShareMusicFile = String.Empty,
                 TriggerApps = new List<string>
                 {
                     "wechat", "weixin", "qq", "wxwork", "discord", "teams", "ms-teams", "zoom"
@@ -45,12 +57,23 @@ namespace VoiceDuck
 
         public void Normalize()
         {
+            if (SettingsVersion < 2)
+            {
+                ShareMicrophoneGain = 0.65f;
+                ShareMusicGain = 0.55f;
+                SettingsVersion = 2;
+            }
             DuckRatio = Clamp(DuckRatio, 0.02f, 1.0f);
             ThresholdDb = Clamp(ThresholdDb, -70.0f, -5.0f);
             TriggerDelayMs = Clamp(TriggerDelayMs, 0, 2000);
             HoldMs = Clamp(HoldMs, 0, 8000);
             AttackMs = Clamp(AttackMs, 0, 4000);
             ReleaseMs = Clamp(ReleaseMs, 0, 6000);
+            ShareMicrophoneDevice = (ShareMicrophoneDevice ?? String.Empty).Trim();
+            ShareMonitorDevice = (ShareMonitorDevice ?? String.Empty).Trim();
+            ShareMicrophoneGain = Clamp(ShareMicrophoneGain, 0.0f, 1.5f);
+            ShareMusicGain = Clamp(ShareMusicGain, 0.0f, 1.5f);
+            ShareMusicFile = (ShareMusicFile ?? String.Empty).Trim();
             if (TriggerApps == null) TriggerApps = new List<string>();
             if (TargetApps == null) TargetApps = new List<string>();
             TriggerApps = NormalizeList(TriggerApps);
@@ -61,6 +84,7 @@ namespace VoiceDuck
         {
             return new AppSettings
             {
+                SettingsVersion = SettingsVersion,
                 Enabled = Enabled,
                 DuckAllOtherAudio = DuckAllOtherAudio,
                 MinimizeToTray = MinimizeToTray,
@@ -70,6 +94,11 @@ namespace VoiceDuck
                 HoldMs = HoldMs,
                 AttackMs = AttackMs,
                 ReleaseMs = ReleaseMs,
+                ShareMicrophoneDevice = ShareMicrophoneDevice,
+                ShareMonitorDevice = ShareMonitorDevice,
+                ShareMicrophoneGain = ShareMicrophoneGain,
+                ShareMusicGain = ShareMusicGain,
+                ShareMusicFile = ShareMusicFile,
                 TriggerApps = new List<string>(TriggerApps ?? new List<string>()),
                 TargetApps = new List<string>(TargetApps ?? new List<string>())
             };

@@ -23,6 +23,24 @@ namespace VoiceDuck
                             " PEAK_DB=" + session.PeakDb.ToString("0.0"));
                     }
                 }
+
+                List<CaptureEndpointInfo> captureEndpoints = CaptureDeviceInspector.GetCaptureEndpoints();
+                Console.WriteLine("CAPTURE_ENDPOINTS=" + captureEndpoints.Count);
+                foreach (CaptureEndpointInfo endpoint in captureEndpoints)
+                {
+                    Console.WriteLine(
+                        "CAPTURE=" + endpoint.Name +
+                        " STATE=" + endpoint.State +
+                        " LOOPBACK=" + endpoint.IsLoopback);
+                }
+                Console.WriteLine("DEFAULT_CAPTURE=" + CaptureDeviceInspector.GetDefaultPhysicalEndpointName(EDataFlow.Capture));
+                Console.WriteLine("DEFAULT_RENDER=" + CaptureDeviceInspector.GetDefaultPhysicalEndpointName(EDataFlow.Render));
+
+                VirtualCableStatus cable = AudioEndpointCatalog.GetVirtualCableStatus();
+                Console.WriteLine("VBCABLE_INSTALLED=" + cable.Installed);
+                Console.WriteLine("VBCABLE_READY=" + cable.Ready);
+                Console.WriteLine("VBCABLE_RENDER=" + cable.RenderName);
+                Console.WriteLine("VBCABLE_CAPTURE=" + cable.CaptureName);
             }
             catch (Exception ex)
             {
