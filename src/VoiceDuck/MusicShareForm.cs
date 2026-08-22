@@ -234,24 +234,37 @@ namespace VoiceDuck
         private void BeginDriverAction(bool uninstall)
         {
             string callProcess;
-            if (CallSafetyInspector.HasPotentialCallAudioSession(_settings.TriggerApps, out callProcess))
-            {
-                MessageBox.Show(
-                    this,
-                    "检测到通话应用正在使用音频（" + callProcess + ".exe）。\r\n\r\n为避免再次打断通话，VoiceDuck 不会在它运行时安装或卸载驱动。请结束通话并退出该通话应用后再试。",
-                    "正在保护通话声音",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
-                return;
-            }
-
+            bool callDetected = CallSafetyInspector.HasPotentialCallAudioSession(
+                _settings.TriggerApps,
+                out callProcess);
             string action = uninstall ? "卸载" : "安装";
+            string confirmationText;
+            string confirmationTitle;
+            if (callDetected)
+            {
+                confirmationTitle = "通话中" + action + "驱动确认";
+                confirmationText =
+                    "检测到通话应用正在使用音频（" + callProcess + ".exe）。\r\n\r\n" +
+                    "预计总用时：约 10～30 秒。\r\n" +
+                    "可能影响：Windows 写入驱动的约 3～10 秒内，通话声音可能短暂中断。\r\n\r\n" +
+                    "VoiceDuck 会先完成哈希与签名校验，再请求管理员权限；不会修改系统默认麦克风或扬声器，也不会自动重启。\r\n\r\n" +
+                    "为保护当前通话，默认选择“否”。仍要继续" + action + "吗？";
+            }
+            else
+            {
+                confirmationTitle = action + "内置虚拟音频驱动";
+                confirmationText =
+                    action + " VB-CABLE 需要管理员权限。\r\n\r\n" +
+                    "预计总用时：约 10～30 秒；哈希与签名校验不会触碰音频设备，只有最后的驱动步骤可能让设备列表短暂刷新。\r\n\r\n" +
+                    "VoiceDuck 不会修改系统默认音频设备，也不会自动重启。继续吗？";
+            }
             DialogResult confirmation = MessageBox.Show(
                 this,
-                action + " VB-CABLE 需要管理员权限，并可能需要你稍后手动重启 Windows。\r\n\r\nVoiceDuck 不会修改系统默认音频设备，也不会自动重启。继续吗？",
-                action + "内置虚拟音频驱动",
+                confirmationText,
+                confirmationTitle,
                 MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
+                callDetected ? MessageBoxIcon.Warning : MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2);
             if (confirmation != DialogResult.Yes) return;
 
             _driverActionRunning = true;

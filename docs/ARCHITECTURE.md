@@ -58,7 +58,7 @@ AudioSessionGraph ──► DuckingCoordinator ──► 按会话调节背景�
 5. 请求 UAC 后运行官方安装或卸载命令；
 6. 删除临时文件并重新探测端点。
 
-安装器不写系统默认音频端点，也不自动重启。`CallSafetyInspector` 在微信、QQ 等通话音频会话存在时阻止安装和卸载。
+安装器不写系统默认音频端点，也不自动重启。`CallSafetyInspector` 在微信、QQ 等通话音频会话存在时触发默认选“否”的风险确认，明确显示预计耗时和可能受影响的驱动写入阶段。
 
 ### MusicShareForm.cs
 
