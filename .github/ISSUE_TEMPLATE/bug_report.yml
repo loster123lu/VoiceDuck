@@ -1,0 +1,50 @@
+name: 缺陷报告
+description: 报告可复现的异常、漏触发或误触发问题
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: 问题描述
+      description: 实际发生了什么？你原本期望怎样？
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开……
+        2. 选择……
+        3. 开始通话……
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows 版本
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: input
+    id: apps
+    attributes:
+      label: 通话与音乐应用
+      placeholder: 微信 4.x；网易云音乐 3.x
+    validations:
+      required: true
+  - type: textarea
+    id: settings
+    attributes:
+      label: VoiceDuck 参数
+      description: 请填写预设名称或相关自定义参数。
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索现有 Issue，没有发现相同问题。
+          required: true
+        - label: 问题不包含账号、聊天内容或其他隐私信息。
+          required: true

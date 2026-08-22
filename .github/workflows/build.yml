@@ -1,0 +1,34 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build and test
+        shell: pwsh
+        run: .\scripts\build.ps1 -OutputDirectory .\artifacts
+
+      - name: Upload portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceDuck-windows-portable
+          path: |
+            artifacts/VoiceDuck.exe
+            artifacts/README.md
+            artifacts/LICENSE.txt
+          if-no-files-found: error
