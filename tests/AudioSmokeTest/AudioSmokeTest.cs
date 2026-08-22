@@ -41,6 +41,7 @@ namespace VoiceDuck
                 Console.WriteLine("VBCABLE_READY=" + cable.Ready);
                 Console.WriteLine("VBCABLE_RENDER=" + cable.RenderName);
                 Console.WriteLine("VBCABLE_CAPTURE=" + cable.CaptureName);
+                Console.WriteLine("AUDIO_RECOVERY_READY=" + AudioRecoveryUtility.IsAudioReady());
             }
             catch (Exception ex)
             {

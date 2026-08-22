@@ -21,4 +21,6 @@ VoiceDuck 内置未修改的 VB-CABLE Driver Pack 45，但绝不在应用启动�
 
 执行官方安装程序前，VoiceDuck 会验证嵌入压缩包与安装程序的固定 SHA-256、Windows Authenticode 信任结果以及 VB-Audio 发布者身份。检测到微信、QQ 等通话音频会话时会显示预计耗时与短暂中断风险，并提供默认选“否”的二次确认；未经明确确认不会执行驱动操作。
 
+驱动操作结束后，VoiceDuck 会等待 Windows Audio 服务、真实麦克风和扬声器连续稳定出现。如果音频服务没有自动恢复，“恢复声音”按钮会再次明确确认并触发 UAC，只重启 Windows Audio 服务，不修改默认音频端点。
+
 报告相关问题时，请附上 VoiceDuck 版本、Windows 版本、`CABLE Input` / `CABLE Output` 的端点状态以及驱动操作前后的日志；不要上传含个人通话内容的录音。

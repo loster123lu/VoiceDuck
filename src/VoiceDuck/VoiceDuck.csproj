@@ -12,6 +12,7 @@
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="System.ServiceProcess" />
     <Reference Include="NAudio.Core">
       <HintPath>..\..\third_party\NAudio\2.3.0\NAudio.Core.dll</HintPath>
       <Private>true</Private>

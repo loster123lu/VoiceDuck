@@ -60,6 +60,8 @@ AudioSessionGraph ──► DuckingCoordinator ──► 按会话调节背景�
 
 安装器不写系统默认音频端点，也不自动重启。`CallSafetyInspector` 在微信、QQ 等通话音频会话存在时触发默认选“否”的风险确认，明确显示预计耗时和可能受影响的驱动写入阶段。
 
+官方安装程序退出后，`AudioRecoveryUtility` 继续观察 Windows Audio、默认真实输入输出设备及物理端点，只有连续稳定后才向界面报告完成。若服务未恢复，用户可通过“恢复声音”明确授权一个独立的提升权限恢复进程；该进程仅重启 `Audiosrv`，必要时启动 `AudioEndpointBuilder`。
+
 ### MusicShareForm.cs
 
 提供驱动状态、设备选择、音乐文件、双增益、电平、播放控制与路由确认。通话应用的输入端点需要用户首次在应用自身设置中选择，因为微信、QQ 等没有统一公开的第三方配置接口。

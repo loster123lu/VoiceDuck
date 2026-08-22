@@ -42,6 +42,7 @@ $compilerArguments = @(
     '/reference:System.Drawing.dll',
     '/reference:System.Windows.Forms.dll',
     '/reference:System.Runtime.Serialization.dll',
+    '/reference:System.ServiceProcess.dll',
     '/reference:System.IO.Compression.dll',
     '/reference:System.IO.Compression.FileSystem.dll',
     "/reference:$netstandard",
@@ -94,6 +95,7 @@ $smokeSources = @(
     (Join-Path $sourceDirectory 'MusicShareCore.cs'),
     (Join-Path $sourceDirectory 'CaptureDevices.cs'),
     (Join-Path $sourceDirectory 'AudioEndpoints.cs'),
+    (Join-Path $sourceDirectory 'AudioRecovery.cs'),
     (Join-Path $sourceDirectory 'CoreAudio.cs'),
     (Join-Path $projectRoot 'tests\AudioSmokeTest\AudioSmokeTest.cs')
 )
@@ -107,6 +109,7 @@ $smokeArguments = @(
     '/reference:System.dll',
     '/reference:System.Core.dll',
     '/reference:System.Runtime.Serialization.dll',
+    '/reference:System.ServiceProcess.dll',
     "/reference:$netstandard",
     "/reference:$naudioCore",
     "/reference:$naudioWasapi"
@@ -127,6 +130,7 @@ $driverTestSources = @(
     (Join-Path $sourceDirectory 'CaptureDevices.cs'),
     (Join-Path $sourceDirectory 'CoreAudio.cs'),
     (Join-Path $sourceDirectory 'AudioEndpoints.cs'),
+    (Join-Path $sourceDirectory 'AudioRecovery.cs'),
     (Join-Path $sourceDirectory 'VirtualAudioInstaller.cs'),
     (Join-Path $projectRoot 'tests\DriverPackageTest\DriverPackageTest.cs')
 )
@@ -140,6 +144,7 @@ $driverTestArguments = @(
     '/reference:System.dll',
     '/reference:System.Core.dll',
     '/reference:System.Runtime.Serialization.dll',
+    '/reference:System.ServiceProcess.dll',
     '/reference:System.IO.Compression.dll',
     '/reference:System.IO.Compression.FileSystem.dll',
     "/reference:$netstandard",
@@ -191,6 +196,7 @@ $uiArguments = @(
     '/reference:System.Drawing.dll',
     '/reference:System.Windows.Forms.dll',
     '/reference:System.Runtime.Serialization.dll',
+    '/reference:System.ServiceProcess.dll',
     '/reference:System.IO.Compression.dll',
     '/reference:System.IO.Compression.FileSystem.dll',
     "/reference:$netstandard",

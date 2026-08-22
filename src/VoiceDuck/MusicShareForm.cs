@@ -37,6 +37,7 @@ namespace VoiceDuck
         private ProgressBar _musicMeter;
         private Button _installButton;
         private Button _uninstallButton;
+        private Button _recoverButton;
         private Button _startButton;
         private Button _pauseButton;
         private Button _stopButton;
@@ -95,18 +96,22 @@ namespace VoiceDuck
             driverTitle.SetBounds(16, 12, 180, 25);
             driverCard.Controls.Add(driverTitle);
             _driverStatus = CreateLabel("正在检测内置 VB-CABLE…", 9.2f, FontStyle.Regular, SubtleColor);
-            _driverStatus.SetBounds(18, 42, 445, 48);
+            _driverStatus.SetBounds(18, 42, 390, 48);
             driverCard.Controls.Add(_driverStatus);
             _installButton = CreateButton("安装内置驱动", AccentColor, Color.White);
-            _installButton.SetBounds(476, 18, 120, 36);
+            _installButton.SetBounds(426, 18, 120, 36);
             _installButton.Click += delegate { BeginDriverAction(false); };
             driverCard.Controls.Add(_installButton);
             _uninstallButton = CreateButton("卸载", Color.FromArgb(48, 60, 77), TextColor);
-            _uninstallButton.SetBounds(606, 18, 112, 36);
+            _uninstallButton.SetBounds(554, 18, 78, 36);
             _uninstallButton.Click += delegate { BeginDriverAction(true); };
             driverCard.Controls.Add(_uninstallButton);
+            _recoverButton = CreateButton("恢复声音", Color.FromArgb(169, 91, 49), Color.White);
+            _recoverButton.SetBounds(640, 18, 82, 36);
+            _recoverButton.Click += delegate { BeginAudioRecovery(); };
+            driverCard.Controls.Add(_recoverButton);
             Label driverNote = CreateLabel("官方签名驱动 · 安装后不改系统默认设备 · 不会自动重启", 8.4f, FontStyle.Regular, SubtleColor);
-            driverNote.SetBounds(478, 66, 242, 36);
+            driverNote.SetBounds(428, 66, 292, 36);
             driverCard.Controls.Add(driverNote);
 
             Panel routeCard = CreateCard(24, 218, 742, 210);
@@ -219,10 +224,11 @@ namespace VoiceDuck
                 FillCombo(_microphoneBox, microphones, _settings.ShareMicrophoneDevice);
                 FillCombo(_monitorBox, monitors, _settings.ShareMonitorDevice);
                 VirtualCableStatus status = _driverInstaller.GetStatus();
-                _driverStatus.Text = status.Message + (status.Ready ? "\r\n通话软件的麦克风请选择 “" + status.CaptureName + "”。" : String.Empty);
+                _driverStatus.Text = status.Message + (status.Ready ? "\r\n通话软件输入请选择 “CABLE Output”。" : String.Empty);
                 _driverStatus.ForeColor = status.Ready ? GreenColor : OrangeColor;
                 _installButton.Enabled = !_driverActionRunning && !status.Ready && _driverInstaller.EmbeddedPackageAvailable;
                 _uninstallButton.Enabled = !_driverActionRunning && status.Installed;
+                _recoverButton.Enabled = !_driverActionRunning;
             }
             catch (Exception exception)
             {
@@ -281,6 +287,49 @@ namespace VoiceDuck
                         this,
                         result.Message,
                         result.Succeeded ? "驱动操作完成" : "驱动操作未完成",
+                        MessageBoxButtons.OK,
+                        result.Succeeded ? MessageBoxIcon.Information : MessageBoxIcon.Error);
+                }));
+            });
+        }
+
+        private void BeginAudioRecovery()
+        {
+            if (AudioRecoveryUtility.IsAudioReady())
+            {
+                RefreshDevices();
+                MessageBox.Show(
+                    this,
+                    "Windows Audio 服务、真实麦克风和扬声器均已正常，无需执行恢复。",
+                    "声音设备正常",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            DialogResult confirmation = MessageBox.Show(
+                this,
+                "恢复声音会以管理员权限重启 Windows Audio 服务。\r\n\r\n预计用时：约 5～20 秒；期间当前声音会短暂中断。VoiceDuck 不会更改默认麦克风或扬声器。\r\n\r\n继续恢复吗？",
+                "恢复 Windows 声音设备",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2);
+            if (confirmation != DialogResult.Yes) return;
+
+            _driverActionRunning = true;
+            RefreshDevices();
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                AudioRecoveryResult result = AudioRecoveryUtility.RecoverWithElevation();
+                if (IsDisposed) return;
+                BeginInvoke(new Action(delegate
+                {
+                    _driverActionRunning = false;
+                    RefreshDevices();
+                    MessageBox.Show(
+                        this,
+                        result.Message,
+                        result.Succeeded ? "声音恢复完成" : "声音恢复未完成",
                         MessageBoxButtons.OK,
                         result.Succeeded ? MessageBoxIcon.Information : MessageBoxIcon.Error);
                 }));

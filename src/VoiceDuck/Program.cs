@@ -12,6 +12,12 @@ namespace VoiceDuck
         [STAThread]
         private static void Main(string[] args)
         {
+            if (AudioRecoveryUtility.IsRecoveryRequest(args))
+            {
+                Environment.ExitCode = AudioRecoveryUtility.RunElevatedRecoveryMode();
+                return;
+            }
+
             bool created;
             _singleInstance = new Mutex(true, "Local\\VoiceDuck-8D0260FB-A64D-42B6-A08A-BB702BC4F97D", out created);
             if (!created)

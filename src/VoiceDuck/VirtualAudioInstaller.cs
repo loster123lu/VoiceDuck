@@ -134,21 +134,27 @@ namespace VoiceDuck
                 {
                     if (process == null) throw new InvalidOperationException("无法启动 VB-CABLE 安装程序。");
                     process.WaitForExit();
-                    if (process.ExitCode != 0)
-                        throw new InvalidOperationException("VB-CABLE 安装程序返回代码 " + process.ExitCode + "。");
-                }
+                    int exitCode = process.ExitCode;
+                    bool audioReady = AudioRecoveryUtility.WaitForAudioReady(25000, 5000);
+                    if (exitCode != 0)
+                        throw new InvalidOperationException(
+                            "VB-CABLE 安装程序返回代码 " + exitCode + "。" +
+                            (audioReady ? String.Empty : " Windows Audio 尚未恢复，请点击“恢复声音”。"));
 
-                VirtualCableStatus status = AudioEndpointCatalog.GetVirtualCableStatus();
-                bool restartRequired = uninstall ? status.Installed : !status.Ready;
-                return new DriverActionResult
-                {
-                    Succeeded = true,
-                    RestartRequired = restartRequired,
-                    Status = status,
-                    Message = uninstall
-                        ? (restartRequired ? "驱动卸载已提交，请在结束通话后重启 Windows。" : "VB-CABLE 已卸载。")
-                        : (restartRequired ? "驱动安装完成，请重启 Windows 后再开始音乐分享。" : "VB-CABLE 已安装并就绪。")
-                };
+                    VirtualCableStatus status = AudioEndpointCatalog.GetVirtualCableStatus();
+                    bool restartRequired = !audioReady || (uninstall ? status.Installed : !status.Ready);
+                    return new DriverActionResult
+                    {
+                        Succeeded = true,
+                        RestartRequired = restartRequired,
+                        Status = status,
+                        Message = !audioReady
+                            ? "驱动操作已经结束，但 Windows Audio 和真实设备尚未稳定恢复。请点击“恢复声音”，不要继续通话分享。"
+                            : uninstall
+                                ? (restartRequired ? "驱动卸载已提交，请在结束通话后重启 Windows。" : "VB-CABLE 已卸载，声音设备已恢复。")
+                                : (restartRequired ? "驱动安装完成，声音设备已恢复；VB-CABLE 仍需在稍后重启后生效。" : "VB-CABLE 已安装，声音设备和虚拟线缆均已稳定就绪。")
+                    };
+                }
             }
             catch (System.ComponentModel.Win32Exception exception)
             {
