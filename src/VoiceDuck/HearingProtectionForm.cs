@@ -214,9 +214,12 @@ namespace VoiceDuck
             valueLabel.TextAlign = ContentAlignment.TopRight;
             valueLabel.SetBounds(410, y, 78, 22);
             parent.Controls.Add(valueLabel);
-            var track = new TrackBar();
+            var track = new PreciseTrackBar();
             track.Minimum = minimum;
             track.Maximum = maximum;
+            int range = maximum - minimum;
+            track.SmallChange = range >= 1000 ? 100 : 1;
+            track.LargeChange = range >= 1000 ? 500 : Math.Max(1, range / 10);
             track.TickStyle = TickStyle.None;
             track.BackColor = CardColor;
             track.SetBounds(x - 4, y + 22, 474, 34);

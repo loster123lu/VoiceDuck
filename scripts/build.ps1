@@ -67,6 +67,7 @@ $testSources = @(
     (Join-Path $sourceDirectory 'MusicShareAudioEngine.cs'),
     (Join-Path $sourceDirectory 'DefaultMicrophoneSwitcher.cs'),
     (Join-Path $sourceDirectory 'HearingProtection.cs'),
+    (Join-Path $sourceDirectory 'TrackBarValueMapper.cs'),
     (Join-Path $sourceDirectory 'VoiceGate.cs'),
     (Join-Path $sourceDirectory 'DuckingCoordinator.cs'),
     (Join-Path $projectRoot 'tests\CoreTests\CoreTests.cs')

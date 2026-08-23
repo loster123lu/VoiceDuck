@@ -85,6 +85,7 @@ namespace VoiceDuck
             TestPendingMicrophoneRestoreSurvivesRestart();
             TestFailedMicrophoneSwitchRollsBack();
             TestHearingProtectionCalculations();
+            TestTrackBarClickMapping();
             TestShareSampleProviders();
             Console.WriteLine("PASS " + _passed + " core tests");
         }
@@ -413,6 +414,22 @@ namespace VoiceDuck
             float recovered = HearingProtectionCore.RecoverToward(-18.0f, -6.0f, 25, 2200);
             Assert(recovered > -18.0f && recovered < -6.0f,
                 "peak recovery must be gradual and must not overshoot the base volume");
+        }
+
+        private static void TestTrackBarClickMapping()
+        {
+            Assert(TrackBarValueMapper.FromPosition(20, 100, 1, 10, 410, 210, false) == 60,
+                "a track click must map to the matching midpoint value");
+            Assert(TrackBarValueMapper.FromPosition(20, 100, 1, 10, 410, -20, false) == 20,
+                "a click before the channel must clamp to the minimum");
+            Assert(TrackBarValueMapper.FromPosition(20, 100, 1, 10, 410, 600, false) == 100,
+                "a click after the channel must clamp to the maximum");
+            Assert(TrackBarValueMapper.FromPosition(-18, -1, 1, 0, 170, 100, false) == -8,
+                "negative decibel ranges must map without an offset error");
+            Assert(TrackBarValueMapper.FromPosition(500, 8000, 100, 0, 150, 80, false) == 4500,
+                "recovery time clicks must snap to the configured keyboard step");
+            Assert(TrackBarValueMapper.FromPosition(20, 100, 1, 10, 410, 10, true) == 100,
+                "right-to-left tracks must reverse the click mapping");
         }
 
         private static FakeDefaultCaptureEndpointController CreateMicrophoneController()

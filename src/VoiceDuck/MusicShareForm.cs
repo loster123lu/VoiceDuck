@@ -544,7 +544,7 @@ namespace VoiceDuck
             valueLabel.TextAlign = ContentAlignment.TopRight;
             valueLabel.SetBounds(x + 254, y, 62, 22);
             parent.Controls.Add(valueLabel);
-            track = new TrackBar();
+            track = new PreciseTrackBar();
             track.Minimum = 0;
             track.Maximum = 150;
             track.TickStyle = TickStyle.None;

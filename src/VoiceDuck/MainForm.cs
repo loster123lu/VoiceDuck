@@ -734,7 +734,7 @@ namespace VoiceDuck
             valueLabel.SetBounds(x + 170, y, 78, 22);
             parent.Controls.Add(valueLabel);
 
-            TrackBar track = new TrackBar();
+            TrackBar track = new PreciseTrackBar();
             track.Minimum = minimum;
             track.Maximum = maximum;
             track.Value = Clamp(value, minimum, maximum);

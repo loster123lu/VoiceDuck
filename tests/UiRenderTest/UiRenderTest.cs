@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -99,6 +100,7 @@ namespace VoiceDuck
                         protectionForm.DrawToBitmap(bitmap, new Rectangle(Point.Empty, protectionForm.Size));
                         bitmap.Save(args[2], ImageFormat.Png);
                     }
+                    VerifyPreciseTrackClick(protectionForm);
                     protectionForm.PrepareForOwnerShutdown();
                     protectionForm.Close();
                     Application.DoEvents();
@@ -110,5 +112,58 @@ namespace VoiceDuck
             Console.WriteLine("MUSIC_SHARE_UI_RENDERED=" + args[1]);
             Console.WriteLine("HEARING_PROTECTION_UI_RENDERED=" + args[2]);
         }
+
+        private static void VerifyPreciseTrackClick(HearingProtectionForm protectionForm)
+        {
+            FieldInfo trackField = typeof(HearingProtectionForm).GetField(
+                "_maxVolumeTrack",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            TrackBar track = trackField == null ? null : trackField.GetValue(protectionForm) as TrackBar;
+            if (track == null) throw new InvalidOperationException("Maximum-volume track bar was not found.");
+
+            NativeRectangle channel = new NativeRectangle();
+            SendMessageRectangle(track.Handle, 0x0400 + 26, IntPtr.Zero, ref channel);
+            int clickX = channel.Left + (channel.Right - channel.Left) / 4;
+            int clickY = track.ClientSize.Height / 2;
+            int expected = TrackBarValueMapper.FromPosition(
+                track.Minimum,
+                track.Maximum,
+                track.SmallChange,
+                channel.Left,
+                channel.Right,
+                clickX,
+                false);
+            int original = track.Value;
+            int packedPoint = (clickY << 16) | (clickX & 0xffff);
+            SendMessageValue(track.Handle, 0x0201, IntPtr.Zero, new IntPtr(packedPoint));
+            Application.DoEvents();
+            if (track.Value != expected)
+                throw new InvalidOperationException(
+                    "Track click mapped to " + track.Value + " instead of " + expected + ".");
+            track.Value = original;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativeRectangle
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
+
+        [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+        private static extern IntPtr SendMessageRectangle(
+            IntPtr window,
+            int message,
+            IntPtr wParam,
+            ref NativeRectangle lParam);
+
+        [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+        private static extern IntPtr SendMessageValue(
+            IntPtr window,
+            int message,
+            IntPtr wParam,
+            IntPtr lParam);
     }
 }
