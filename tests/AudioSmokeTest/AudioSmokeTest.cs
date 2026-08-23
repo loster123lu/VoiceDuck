@@ -83,6 +83,12 @@ namespace VoiceDuck
 
         private static void PrintEndpointState(string label, string endpointId)
         {
+            if (String.IsNullOrWhiteSpace(endpointId))
+            {
+                Console.WriteLine(label + "_AVAILABLE=False");
+                return;
+            }
+
             using (var endpoint = AudioEndpointCatalog.OpenDevice(endpointId))
             {
                 float peak = 0.0f;
@@ -91,6 +97,7 @@ namespace VoiceDuck
                     peak = Math.Max(peak, endpoint.AudioMeterInformation.MasterPeakValue);
                     Thread.Sleep(50);
                 }
+                Console.WriteLine(label + "_AVAILABLE=True");
                 Console.WriteLine(label + "_NAME=" + endpoint.FriendlyName);
                 Console.WriteLine(label + "_MUTED=" + endpoint.AudioEndpointVolume.Mute);
                 Console.WriteLine(label + "_VOLUME=" +
