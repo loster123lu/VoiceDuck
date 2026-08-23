@@ -198,6 +198,16 @@ namespace VoiceDuck
             }
         }
 
+        public float GetActiveLocalVoicePeak()
+        {
+            lock (_sync)
+            {
+                if (!_running || _voicePriority == null || !_voicePriority.Ducking)
+                    return -1.0f;
+                return _microphoneMeter == null ? 0.0f : _microphoneMeter.Peak;
+            }
+        }
+
         public void Stop()
         {
             lock (_sync) StopInternal();

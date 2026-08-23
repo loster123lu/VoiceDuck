@@ -245,6 +245,7 @@ namespace VoiceDuck
         private volatile bool _running;
         private volatile bool _refreshRequested;
         private AppSettings _settings;
+        private Func<float> _activeLocalVoicePeakProvider;
         private List<AudioSessionInfo> _snapshot = new List<AudioSessionInfo>();
         private EngineStatus _status = new EngineStatus { TriggerPeakDb = -96.0f };
         private CallAudioActivity _callActivity = new CallAudioActivity { PeakDb = -96.0f };
@@ -270,6 +271,11 @@ namespace VoiceDuck
         {
             if (settings == null) return;
             lock (_sync) _settings = settings.Clone();
+        }
+
+        public void SetActiveLocalVoicePeakProvider(Func<float> provider)
+        {
+            lock (_sync) _activeLocalVoicePeakProvider = provider;
         }
 
         public void RequestRefresh()
@@ -318,7 +324,12 @@ namespace VoiceDuck
                 while (_running)
                 {
                     AppSettings settings;
-                    lock (_sync) settings = _settings.Clone();
+                    Func<float> activeLocalVoicePeakProvider;
+                    lock (_sync)
+                    {
+                        settings = _settings.Clone();
+                        activeLocalVoicePeakProvider = _activeLocalVoicePeakProvider;
+                    }
                     try
                     {
                         if (refreshElapsed >= 250 || _refreshRequested)
@@ -330,7 +341,13 @@ namespace VoiceDuck
 
                         IList<IDuckableSession> sessions = _graph.Sessions;
                         CallAudioActivity callActivity = MeasureCallActivity(sessions, settings.TriggerApps);
-                        _coordinator.Tick(sessions, settings, 50);
+                        float activeLocalVoicePeak = -1.0f;
+                        if (activeLocalVoicePeakProvider != null)
+                        {
+                            try { activeLocalVoicePeak = activeLocalVoicePeakProvider(); }
+                            catch { activeLocalVoicePeak = -1.0f; }
+                        }
+                        _coordinator.Tick(sessions, settings, 50, activeLocalVoicePeak);
 
                         lock (_sync) _callActivity = callActivity;
 
@@ -342,7 +359,7 @@ namespace VoiceDuck
                                 _snapshot = infos;
                                 _status = new EngineStatus
                                 {
-                                    Enabled = settings.Enabled,
+                                    Enabled = settings.Enabled || activeLocalVoicePeak >= 0.0f,
                                     Ducking = _coordinator.IsDucking,
                                     TriggerProcess = _coordinator.TriggerProcess,
                                     TriggerPeakDb = _coordinator.TriggerPeakDb,

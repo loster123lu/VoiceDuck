@@ -77,6 +77,7 @@ namespace VoiceDuck
             _startHidden = startHidden;
             _service = new AudioEngineService(settings);
             _musicShareService = new MusicShareAudioEngine(_service.GetCallActivity);
+            _service.SetActiveLocalVoicePeakProvider(_musicShareService.GetActiveLocalVoicePeak);
             _hearingProtectionService = new HearingProtectionService(settings);
             if (microphoneSwitcher == null)
             {
@@ -770,6 +771,7 @@ namespace VoiceDuck
             if (name == "discord") return "Discord · Discord.exe";
             if (name == "teams" || name == "ms-teams") return "Microsoft Teams · " + name + ".exe";
             if (name == "zoom") return "Zoom · Zoom.exe";
+            if (name == "local-microphone") return "你的麦克风";
             if (name == "chrome") return "Google Chrome · chrome.exe";
             if (name == "msedge") return "Microsoft Edge · msedge.exe";
             return name.Length == 0 ? "未知应用" : name + ".exe";

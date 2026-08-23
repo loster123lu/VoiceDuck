@@ -11,7 +11,7 @@
 ## 本地开发
 
 ```powershell
-git clone https://github.com/1917360964/VoiceDuck.git
+git clone https://github.com/loster123lu/VoiceDuck.git
 cd VoiceDuck
 .\scripts\build.ps1
 ```

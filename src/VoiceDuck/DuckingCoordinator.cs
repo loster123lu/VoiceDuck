@@ -26,6 +26,7 @@ namespace VoiceDuck
         private readonly Dictionary<string, VolumeState> _volumes =
             new Dictionary<string, VolumeState>(StringComparer.OrdinalIgnoreCase);
         private bool _wasEnabled;
+        private bool _localVoiceReleasePending;
 
         public bool IsDucking { get; private set; }
         public string TriggerProcess { get; private set; }
@@ -33,12 +34,25 @@ namespace VoiceDuck
 
         public void Tick(IList<IDuckableSession> sessions, AppSettings settings, int elapsedMs)
         {
+            Tick(sessions, settings, elapsedMs, -1.0f);
+        }
+
+        public void Tick(
+            IList<IDuckableSession> sessions,
+            AppSettings settings,
+            int elapsedMs,
+            float activeLocalVoicePeak)
+        {
             if (sessions == null) throw new ArgumentNullException("sessions");
             if (settings == null) throw new ArgumentNullException("settings");
 
-            if (!settings.Enabled)
+            bool localVoiceActive = activeLocalVoicePeak >= 0.0f;
+            if (!settings.Enabled && !localVoiceActive)
             {
-                if (_wasEnabled || _volumes.Count > 0) RestoreAll(sessions, true, settings.ReleaseMs, elapsedMs);
+                bool smoothLocalRelease = _localVoiceReleasePending && _volumes.Count > 0;
+                if (_wasEnabled || _volumes.Count > 0)
+                    RestoreAll(sessions, !smoothLocalRelease, settings.ReleaseMs, elapsedMs);
+                if (_volumes.Count == 0) _localVoiceReleasePending = false;
                 _voiceGate.Reset();
                 IsDucking = false;
                 TriggerProcess = String.Empty;
@@ -48,39 +62,52 @@ namespace VoiceDuck
             }
 
             _wasEnabled = true;
+            if (localVoiceActive) _localVoiceReleasePending = true;
             var triggerNames = new HashSet<string>(settings.TriggerApps, StringComparer.OrdinalIgnoreCase);
             float peak = 0.0f;
             string trigger = String.Empty;
 
-            foreach (IDuckableSession session in sessions)
+            if (settings.Enabled)
             {
-                string processName = AppSettings.NormalizeProcessName(session.ProcessName);
-                if (!triggerNames.Contains(processName)) continue;
-                float candidate = SafePeak(session);
-                if (candidate > peak)
+                foreach (IDuckableSession session in sessions)
                 {
-                    peak = candidate;
-                    trigger = processName;
+                    string processName = AppSettings.NormalizeProcessName(session.ProcessName);
+                    if (!triggerNames.Contains(processName)) continue;
+                    float candidate = SafePeak(session);
+                    if (candidate > peak)
+                    {
+                        peak = candidate;
+                        trigger = processName;
+                    }
                 }
             }
 
-            bool shouldDuck = _voiceGate.Update(
-                peak,
-                settings.ThresholdDb,
-                settings.TriggerDelayMs,
-                settings.HoldMs,
-                elapsedMs);
+            bool shouldDuck = settings.Enabled && _voiceGate.Update(
+                    peak,
+                    settings.ThresholdDb,
+                    settings.TriggerDelayMs,
+                    settings.HoldMs,
+                    elapsedMs);
+
+            if (!settings.Enabled) _voiceGate.Reset();
+            if (localVoiceActive)
+            {
+                shouldDuck = true;
+                peak = activeLocalVoicePeak;
+                trigger = "local-microphone";
+            }
 
             IsDucking = shouldDuck;
             TriggerProcess = trigger;
             TriggerPeakDb = VoiceGate.LinearToDb(peak);
 
             if (shouldDuck)
-                DuckTargets(sessions, settings, triggerNames, elapsedMs);
+                DuckTargets(sessions, settings, triggerNames, elapsedMs, localVoiceActive);
             else
                 RestoreAll(sessions, false, settings.ReleaseMs, elapsedMs);
 
             RemoveMissingSessions(sessions);
+            if (!localVoiceActive && _volumes.Count == 0) _localVoiceReleasePending = false;
         }
 
         public void RestoreNow(IList<IDuckableSession> sessions)
@@ -100,7 +127,8 @@ namespace VoiceDuck
             IList<IDuckableSession> sessions,
             AppSettings settings,
             HashSet<string> triggerNames,
-            int elapsedMs)
+            int elapsedMs,
+            bool localVoiceActive)
         {
             var targetNames = new HashSet<string>(settings.TargetApps, StringComparer.OrdinalIgnoreCase);
             foreach (IDuckableSession session in sessions)
@@ -108,7 +136,7 @@ namespace VoiceDuck
                 string processName = AppSettings.NormalizeProcessName(session.ProcessName);
                 if (session.IsSystemSounds || processName == "voiceduck" || triggerNames.Contains(processName))
                     continue;
-                if (!settings.DuckAllOtherAudio && !targetNames.Contains(processName))
+                if (!localVoiceActive && !settings.DuckAllOtherAudio && !targetNames.Contains(processName))
                     continue;
 
                 float current = SafeVolume(session);

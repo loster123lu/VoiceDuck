@@ -74,6 +74,7 @@ namespace VoiceDuck
         {
             TestNotificationPulseIsRejected();
             TestSpeechDucksOnlySelectedTarget();
+            TestLocalMicrophoneDucksAllPlayback();
             TestHoldBridgesShortPause();
             TestDisableRestoresExactBaseline();
             TestMultipleSessionsOfSameProcessAreControlled();
@@ -136,6 +137,29 @@ namespace VoiceDuck
             Assert(engine.IsDucking, "continuous speech must open gate");
             Assert(music.Volume < 0.35f, "selected music must be ducked");
             AssertNear(0.7f, browser.Volume, 0.001f, "unselected browser must be untouched");
+        }
+
+        private static void TestLocalMicrophoneDucksAllPlayback()
+        {
+            var call = new FakeSession { Id = "c", ProcessName = "wechat", Volume = 0.9f };
+            var music = new FakeSession { Id = "m", ProcessName = "spotify", Volume = 0.8f };
+            var browser = new FakeSession { Id = "b", ProcessName = "chrome", Volume = 0.7f };
+            var sessions = new List<IDuckableSession> { call, music, browser };
+            var engine = new DuckingCoordinator();
+            AppSettings settings = Settings();
+            settings.Enabled = false;
+
+            for (int i = 0; i < 4; i++) engine.Tick(sessions, settings, 50, 0.2f);
+
+            Assert(engine.IsDucking, "local microphone speech must duck while sharing");
+            Assert(engine.TriggerProcess == "local-microphone", "local microphone must be reported as trigger");
+            Assert(music.Volume < 0.35f, "selected music must be ducked by local speech");
+            Assert(browser.Volume < 0.35f, "unselected playback must also duck while sharing");
+            AssertNear(0.9f, call.Volume, 0.001f, "call audio must remain untouched by local speech");
+
+            for (int i = 0; i < 20; i++) engine.Tick(sessions, settings, 50, -1.0f);
+            AssertNear(0.8f, music.Volume, 0.003f, "music must recover after local speech");
+            AssertNear(0.7f, browser.Volume, 0.003f, "other playback must recover after local speech");
         }
 
         private static void TestHoldBridgesShortPause()
