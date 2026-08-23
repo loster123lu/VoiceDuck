@@ -43,6 +43,15 @@ namespace VoiceDuck
                 Console.WriteLine("VBCABLE_READY=" + cable.Ready);
                 Console.WriteLine("VBCABLE_RENDER=" + cable.RenderName);
                 Console.WriteLine("VBCABLE_CAPTURE=" + cable.CaptureName);
+                var defaultMicrophoneController = new DefaultCaptureEndpointController();
+                defaultMicrophoneController.ProbePolicyAccess();
+                Console.WriteLine("DEFAULT_MICROPHONE_SWITCH_POLICY=True");
+                Console.WriteLine("DEFAULT_MICROPHONE_CONSOLE=" +
+                    defaultMicrophoneController.GetDefaultEndpointId(DefaultMicrophoneRole.Console));
+                Console.WriteLine("DEFAULT_MICROPHONE_MULTIMEDIA=" +
+                    defaultMicrophoneController.GetDefaultEndpointId(DefaultMicrophoneRole.Multimedia));
+                Console.WriteLine("DEFAULT_MICROPHONE_COMMUNICATIONS=" +
+                    defaultMicrophoneController.GetDefaultEndpointId(DefaultMicrophoneRole.Communications));
                 Console.WriteLine("AUDIO_RECOVERY_READY=" + AudioRecoveryUtility.IsAudioReady());
             }
             catch (Exception ex)

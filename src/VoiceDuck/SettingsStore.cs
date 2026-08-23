@@ -14,6 +14,10 @@ namespace VoiceDuck
 
         public static string SettingsPath { get { return FilePath; } }
         public static string DataFolderPath { get { return FolderPath; } }
+        public static string MicrophoneRestorePath
+        {
+            get { return Path.Combine(FolderPath, "microphone-restore.json"); }
+        }
 
         public static AppSettings Load()
         {

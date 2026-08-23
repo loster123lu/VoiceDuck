@@ -23,6 +23,7 @@ namespace VoiceDuck
 
         private readonly AppSettings _settings;
         private readonly MusicShareAudioEngine _engine;
+        private readonly IDefaultMicrophoneSwitcher _microphoneSwitcher;
         private readonly VirtualAudioInstaller _driverInstaller;
         private readonly Action _settingsChanged;
         private readonly System.Windows.Forms.Timer _timer;
@@ -43,15 +44,21 @@ namespace VoiceDuck
         private Button _startButton;
         private Button _pauseButton;
         private Button _stopButton;
+        private CheckBox _autoSwitchMicrophoneCheck;
         private CheckBox _routingCheck;
         private bool _updating;
         private bool _driverActionRunning;
         private bool _ownerShuttingDown;
 
-        public MusicShareForm(AppSettings settings, MusicShareAudioEngine engine, Action settingsChanged)
+        public MusicShareForm(
+            AppSettings settings,
+            MusicShareAudioEngine engine,
+            IDefaultMicrophoneSwitcher microphoneSwitcher,
+            Action settingsChanged)
         {
             _settings = settings;
             _engine = engine;
+            _microphoneSwitcher = microphoneSwitcher;
             _settingsChanged = settingsChanged;
             _driverInstaller = new VirtualAudioInstaller();
 
@@ -65,6 +72,12 @@ namespace VoiceDuck
             Font = new Font("Segoe UI", 9.2f, FontStyle.Regular, GraphicsUnit.Point);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
+            try
+            {
+                using (Icon executableIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath))
+                    if (executableIcon != null) Icon = (Icon)executableIcon.Clone();
+            }
+            catch { }
 
             BuildInterface();
             LoadSettings();
@@ -81,6 +94,8 @@ namespace VoiceDuck
         {
             _ownerShuttingDown = true;
             _timer.Stop();
+            _engine.Stop();
+            _microphoneSwitcher.Restore();
         }
 
         private void BuildInterface()
@@ -144,7 +159,7 @@ namespace VoiceDuck
             soundSettingsButton.SetBounds(142, 166, 130, 30);
             soundSettingsButton.Click += OpenSoundSettings;
             routeCard.Controls.Add(soundSettingsButton);
-            Label routingHelp = CreateLabel("微信/QQ：输入选 CABLE Output；输出继续选你的真实耳机", 8.8f, FontStyle.Bold, AccentColor);
+            Label routingHelp = CreateLabel("微信/QQ：输入跟随系统默认；输出继续选你的真实耳机", 8.8f, FontStyle.Bold, AccentColor);
             routingHelp.SetBounds(286, 169, 426, 24);
             routeCard.Controls.Add(routingHelp);
 
@@ -158,11 +173,19 @@ namespace VoiceDuck
             _microphoneGain.ValueChanged += GainChanged;
             _musicGain.ValueChanged += GainChanged;
 
+            _autoSwitchMicrophoneCheck = new CheckBox();
+            _autoSwitchMicrophoneCheck.Text = "自动切换并恢复系统默认麦克风";
+            _autoSwitchMicrophoneCheck.ForeColor = TextColor;
+            _autoSwitchMicrophoneCheck.BackColor = Color.Transparent;
+            _autoSwitchMicrophoneCheck.SetBounds(28, 568, 350, 28);
+            _autoSwitchMicrophoneCheck.CheckedChanged += AutoSwitchMicrophoneChanged;
+            Controls.Add(_autoSwitchMicrophoneCheck);
+
             _routingCheck = new CheckBox();
-            _routingCheck.Text = "我已确认：通话输入是 CABLE Output，通话输出仍是真实耳机";
+            _routingCheck.Text = "我已确认：通话输出仍是真实耳机";
             _routingCheck.ForeColor = TextColor;
             _routingCheck.BackColor = Color.Transparent;
-            _routingCheck.SetBounds(28, 568, 520, 28);
+            _routingCheck.SetBounds(400, 568, 360, 28);
             Controls.Add(_routingCheck);
 
             _startButton = CreateButton("开始分享", AccentColor, Color.White);
@@ -176,7 +199,7 @@ namespace VoiceDuck
             _stopButton = CreateButton("停止分享", StopInactiveColor, Color.FromArgb(255, 210, 216));
             _stopButton.SetBounds(330, 605, 132, 42);
             _stopButton.Font = new Font("Segoe UI", 9.2f, FontStyle.Bold, GraphicsUnit.Point);
-            _stopButton.Click += delegate { _engine.Stop(); };
+            _stopButton.Click += StopSharing;
             Controls.Add(_stopButton);
             UpdateStopButtonAppearance(false);
 
@@ -205,6 +228,7 @@ namespace VoiceDuck
                 _settings.Normalize();
                 _microphoneGain.Value = Clamp((int)Math.Round(_settings.ShareMicrophoneGain * 100), 0, 150);
                 _musicGain.Value = Clamp((int)Math.Round(_settings.ShareMusicGain * 100), 0, 150);
+                _autoSwitchMicrophoneCheck.Checked = _settings.ShareAutoSwitchMicrophone;
                 UpdateGainLabels();
             }
             finally { _updating = false; }
@@ -219,7 +243,8 @@ namespace VoiceDuck
                 FillCombo(_microphoneBox, microphones, _settings.ShareMicrophoneDevice);
                 FillCombo(_monitorBox, monitors, _settings.ShareMonitorDevice);
                 VirtualCableStatus status = _driverInstaller.GetStatus();
-                _driverStatus.Text = status.Message + (status.Ready ? "\r\n通话软件输入请选择 “CABLE Output”。" : String.Empty);
+                _driverStatus.Text = status.Message +
+                    (status.Ready ? "\r\n通话软件输入请使用“系统默认设备”（或 CABLE Output）。" : String.Empty);
                 _driverStatus.ForeColor = status.Ready ? GreenColor : OrangeColor;
                 _installButton.Enabled = !_driverActionRunning && !status.Ready && _driverInstaller.EmbeddedPackageAvailable;
                 _uninstallButton.Enabled = !_driverActionRunning && status.Installed;
@@ -347,6 +372,7 @@ namespace VoiceDuck
                 _settings.ShareMonitorDevice = monitor.Id;
                 _settings.ShareMicrophoneGain = _microphoneGain.Value / 100.0f;
                 _settings.ShareMusicGain = _musicGain.Value / 100.0f;
+                _settings.ShareAutoSwitchMicrophone = _autoSwitchMicrophoneCheck.Checked;
                 SaveSettings();
                 _engine.Start(new MusicShareStartOptions
                 {
@@ -355,11 +381,44 @@ namespace VoiceDuck
                     MicrophoneGain = _settings.ShareMicrophoneGain,
                     MusicGain = _settings.ShareMusicGain
                 });
+                if (_settings.ShareAutoSwitchMicrophone)
+                {
+                    MicrophoneRouteResult switchResult = _microphoneSwitcher.SwitchTo(cable.CaptureId);
+                    if (!switchResult.Succeeded)
+                    {
+                        _engine.Stop();
+                        throw new InvalidOperationException(switchResult.Message);
+                    }
+                }
             }
             catch (Exception exception)
             {
+                _engine.Stop();
+                if (_microphoneSwitcher.HasPendingRestore) _microphoneSwitcher.Restore();
                 MessageBox.Show(this, exception.Message, "音乐分享无法启动", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private void StopSharing(object sender, EventArgs eventArgs)
+        {
+            _engine.Stop();
+            MicrophoneRouteResult restore = _microphoneSwitcher.Restore();
+            if (!restore.Succeeded)
+            {
+                MessageBox.Show(
+                    this,
+                    restore.Message + "\r\n\r\n请在 Windows 声音设置中手动选择真实麦克风。",
+                    "默认麦克风恢复未完成",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
+
+        private void AutoSwitchMicrophoneChanged(object sender, EventArgs eventArgs)
+        {
+            if (_updating) return;
+            _settings.ShareAutoSwitchMicrophone = _autoSwitchMicrophoneCheck.Checked;
+            SaveSettings();
         }
 
         private void GainChanged(object sender, EventArgs eventArgs)
@@ -375,6 +434,9 @@ namespace VoiceDuck
         private void TimerTick(object sender, EventArgs eventArgs)
         {
             MusicShareStatus status = _engine.GetStatus();
+            MicrophoneRouteResult automaticRestore = null;
+            if (!status.Running && _microphoneSwitcher.HasPendingRestore)
+                automaticRestore = _microphoneSwitcher.Restore();
             _microphoneMeter.Value = PeakToMeter(status.MicrophonePeak);
             _musicMeter.Value = PeakToMeter(status.MusicPeak);
             if (!String.IsNullOrWhiteSpace(status.LastError))
@@ -401,7 +463,9 @@ namespace VoiceDuck
                 {
                     _shareStatus.Text = "正在分享设备声音";
                     _shareStatus.ForeColor = GreenColor;
-                    _timeLabel.Text = "实时监听 · 延迟约 " + status.DelayMilliseconds + " ms";
+                    _timeLabel.Text = _autoSwitchMicrophoneCheck.Checked
+                        ? "默认麦克风已切换 · 延迟约 " + status.DelayMilliseconds + " ms"
+                        : "实时监听 · 延迟约 " + status.DelayMilliseconds + " ms";
                 }
             }
             else
@@ -410,9 +474,17 @@ namespace VoiceDuck
                 _shareStatus.ForeColor = SubtleColor;
                 _timeLabel.Text = "实时监听延迟约 " + status.DelayMilliseconds + " ms";
             }
+            if (automaticRestore != null && !automaticRestore.Succeeded && String.IsNullOrWhiteSpace(status.LastError))
+            {
+                _shareStatus.Text = "默认麦克风恢复失败";
+                _shareStatus.ForeColor = OrangeColor;
+                _timeLabel.Text = automaticRestore.Message;
+            }
             _startButton.Enabled = !status.Running;
             _pauseButton.Enabled = status.Running;
             _pauseButton.Text = status.Paused ? "继续播放声" : "暂停播放声";
+            _autoSwitchMicrophoneCheck.Enabled = !status.Running;
+            _routingCheck.Enabled = !status.Running;
             UpdateStopButtonAppearance(status.Running);
         }
 

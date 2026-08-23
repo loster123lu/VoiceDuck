@@ -39,7 +39,7 @@ namespace VoiceDuck
             Application.ThreadException += delegate(object sender, ThreadExceptionEventArgs eventArgs)
             {
                 MessageBox.Show(
-                    "VoiceDuck 遇到错误，退出时会恢复由它调整的音量。\n\n" + eventArgs.Exception.Message,
+                    "VoiceDuck 遇到错误，退出时会恢复由它调整的音量和默认麦克风。\n\n" + eventArgs.Exception.Message,
                     "VoiceDuck",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);

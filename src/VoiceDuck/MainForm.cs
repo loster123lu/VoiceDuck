@@ -26,6 +26,8 @@ namespace VoiceDuck
         private readonly AppSettings _settings;
         private readonly AudioEngineService _service;
         private readonly MusicShareAudioEngine _musicShareService;
+        private readonly IDefaultMicrophoneSwitcher _microphoneSwitcher;
+        private readonly bool _ownsMicrophoneSwitcher;
         private readonly bool _startHidden;
         private readonly Timer _uiTimer;
         private NotifyIcon _trayIcon;
@@ -56,13 +58,36 @@ namespace VoiceDuck
         private bool _allowExit;
         private int _refreshTicks;
         private string _sessionSignature = String.Empty;
+        private string _startupMicrophoneWarning = String.Empty;
 
         public MainForm(AppSettings settings, bool startHidden)
+            : this(settings, startHidden, null)
+        {
+        }
+
+        internal MainForm(
+            AppSettings settings,
+            bool startHidden,
+            IDefaultMicrophoneSwitcher microphoneSwitcher)
         {
             _settings = settings;
             _startHidden = startHidden;
             _service = new AudioEngineService(settings);
             _musicShareService = new MusicShareAudioEngine(_service.GetCallActivity);
+            if (microphoneSwitcher == null)
+            {
+                _microphoneSwitcher = new DefaultMicrophoneSwitcher(
+                    new DefaultCaptureEndpointController(),
+                    SettingsStore.MicrophoneRestorePath);
+                _ownsMicrophoneSwitcher = true;
+                MicrophoneRouteResult recovery = _microphoneSwitcher.Restore();
+                if (!recovery.Succeeded) _startupMicrophoneWarning = recovery.Message;
+            }
+            else
+            {
+                _microphoneSwitcher = microphoneSwitcher;
+                _ownsMicrophoneSwitcher = false;
+            }
 
             Text = "VoiceDuck · 智能语音闪避";
             ClientSize = new Size(930, 700);
@@ -73,6 +98,12 @@ namespace VoiceDuck
             Font = new Font("Segoe UI", 9.5f, FontStyle.Regular, GraphicsUnit.Point);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
+            try
+            {
+                using (Icon executableIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath))
+                    if (executableIcon != null) Icon = (Icon)executableIcon.Clone();
+            }
+            catch { }
 
             BuildInterface();
             BuildTrayIcon();
@@ -92,6 +123,12 @@ namespace VoiceDuck
             Shown += delegate
             {
                 RefreshApplicationLists(true);
+                if (!String.IsNullOrWhiteSpace(_startupMicrophoneWarning))
+                    _trayIcon.ShowBalloonTip(
+                        5000,
+                        "默认麦克风恢复未完成",
+                        _startupMicrophoneWarning + " 请打开声音设置手动选择真实麦克风。",
+                        ToolTipIcon.Warning);
                 if (_startHidden) BeginInvoke(new Action(Hide));
             };
             FormClosing += MainFormClosing;
@@ -106,8 +143,17 @@ namespace VoiceDuck
                     _musicShareForm.Dispose();
                     _musicShareForm = null;
                 }
+                else
+                {
+                    _microphoneSwitcher.Restore();
+                }
                 _musicShareService.Dispose();
                 _service.Dispose();
+                if (_ownsMicrophoneSwitcher)
+                {
+                    IDisposable disposable = _microphoneSwitcher as IDisposable;
+                    if (disposable != null) disposable.Dispose();
+                }
             };
         }
 
@@ -122,9 +168,10 @@ namespace VoiceDuck
             var header = CreateCard(new Rectangle(0, 0, ClientSize.Width, 94), WindowColor);
             Controls.Add(header);
 
-            Label logo = CreateLabel("VD", 16.0f, FontStyle.Bold, AccentColor);
-            logo.TextAlign = ContentAlignment.MiddleCenter;
-            logo.BackColor = Color.FromArgb(37, 55, 85);
+            PictureBox logo = new PictureBox();
+            logo.BackColor = Color.Transparent;
+            logo.SizeMode = PictureBoxSizeMode.Zoom;
+            if (Icon != null) logo.Image = Icon.ToBitmap();
             logo.SetBounds(24, 22, 50, 50);
             header.Controls.Add(logo);
 
@@ -263,10 +310,10 @@ namespace VoiceDuck
                 UpdateToggleAppearance();
             });
             menu.Items.Add("通话音乐分享", null, delegate { ShowMusicShare(); });
-            menu.Items.Add("退出并恢复音量", null, delegate { Shutdown(); });
+            menu.Items.Add("退出并恢复音量/麦克风", null, delegate { Shutdown(); });
 
             _trayIcon = new NotifyIcon();
-            _trayIcon.Icon = SystemIcons.Application;
+            _trayIcon.Icon = Icon ?? SystemIcons.Application;
             _trayIcon.Text = "VoiceDuck";
             _trayIcon.ContextMenuStrip = menu;
             _trayIcon.Visible = true;
@@ -532,7 +579,11 @@ namespace VoiceDuck
         {
             ShowMainWindow();
             if (_musicShareForm == null || _musicShareForm.IsDisposed)
-                _musicShareForm = new MusicShareForm(_settings, _musicShareService, ApplySettings);
+                _musicShareForm = new MusicShareForm(
+                    _settings,
+                    _musicShareService,
+                    _microphoneSwitcher,
+                    ApplySettings);
             if (!_musicShareForm.Visible) _musicShareForm.Show(this);
             _musicShareForm.Activate();
         }

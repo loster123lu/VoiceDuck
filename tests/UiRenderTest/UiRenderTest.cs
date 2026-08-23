@@ -18,7 +18,8 @@ namespace VoiceDuck
 
             AppSettings settings = AppSettings.CreateDefault();
             settings.Enabled = false;
-            using (var form = new MainForm(settings, false))
+            var microphoneSwitcher = new NoOpDefaultMicrophoneSwitcher();
+            using (var form = new MainForm(settings, false, microphoneSwitcher))
             {
                 form.ShowInTaskbar = false;
                 form.StartPosition = FormStartPosition.Manual;
@@ -37,7 +38,11 @@ namespace VoiceDuck
                 }
 
                 using (var service = new MusicShareAudioEngine())
-                using (var shareForm = new MusicShareForm(settings, service, delegate { }))
+                using (var shareForm = new MusicShareForm(
+                    settings,
+                    service,
+                    microphoneSwitcher,
+                    delegate { }))
                 {
                     shareForm.ShowInTaskbar = false;
                     shareForm.StartPosition = FormStartPosition.Manual;

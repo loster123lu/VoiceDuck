@@ -21,6 +21,7 @@ namespace VoiceDuck
         [DataMember] public string ShareMonitorDevice { get; set; }
         [DataMember] public float ShareMicrophoneGain { get; set; }
         [DataMember] public float ShareMusicGain { get; set; }
+        [DataMember] public bool ShareAutoSwitchMicrophone { get; set; }
         [DataMember] public List<string> TriggerApps { get; set; }
         [DataMember] public List<string> TargetApps { get; set; }
 
@@ -28,7 +29,7 @@ namespace VoiceDuck
         {
             return new AppSettings
             {
-                SettingsVersion = 3,
+                SettingsVersion = 4,
                 Enabled = false,
                 DuckAllOtherAudio = false,
                 MinimizeToTray = true,
@@ -42,6 +43,7 @@ namespace VoiceDuck
                 ShareMonitorDevice = String.Empty,
                 ShareMicrophoneGain = 0.65f,
                 ShareMusicGain = 0.55f,
+                ShareAutoSwitchMicrophone = true,
                 TriggerApps = new List<string>
                 {
                     "wechat", "weixin", "qq", "wxwork", "discord", "teams", "ms-teams", "zoom"
@@ -60,7 +62,8 @@ namespace VoiceDuck
                 ShareMicrophoneGain = 0.65f;
                 ShareMusicGain = 0.55f;
             }
-            SettingsVersion = 3;
+            if (SettingsVersion < 4) ShareAutoSwitchMicrophone = true;
+            SettingsVersion = 4;
             DuckRatio = Clamp(DuckRatio, 0.02f, 1.0f);
             ThresholdDb = Clamp(ThresholdDb, -70.0f, -5.0f);
             TriggerDelayMs = Clamp(TriggerDelayMs, 0, 2000);
@@ -95,6 +98,7 @@ namespace VoiceDuck
                 ShareMonitorDevice = ShareMonitorDevice,
                 ShareMicrophoneGain = ShareMicrophoneGain,
                 ShareMusicGain = ShareMusicGain,
+                ShareAutoSwitchMicrophone = ShareAutoSwitchMicrophone,
                 TriggerApps = new List<string>(TriggerApps ?? new List<string>()),
                 TargetApps = new List<string>(TargetApps ?? new List<string>())
             };

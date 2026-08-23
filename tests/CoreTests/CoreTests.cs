@@ -19,6 +19,53 @@ namespace VoiceDuck
         public void WriteVolume(float volume) { Volume = volume; }
     }
 
+    internal sealed class FakeDefaultCaptureEndpointController : IDefaultCaptureEndpointController
+    {
+        private readonly Dictionary<DefaultMicrophoneRole, string> _defaults =
+            new Dictionary<DefaultMicrophoneRole, string>();
+        public readonly HashSet<string> Active = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        public string FallbackEndpointId { get; set; }
+        public DefaultMicrophoneRole? FailNextSetRole { get; set; }
+
+        public string GetDefaultEndpointId(DefaultMicrophoneRole role)
+        {
+            string value;
+            return _defaults.TryGetValue(role, out value) ? value : String.Empty;
+        }
+
+        public void SetDefaultEndpoint(string endpointId, DefaultMicrophoneRole role)
+        {
+            if (FailNextSetRole.HasValue && FailNextSetRole.Value == role)
+            {
+                FailNextSetRole = null;
+                throw new InvalidOperationException("Simulated policy failure.");
+            }
+            if (!Active.Contains(endpointId)) throw new InvalidOperationException("Endpoint is unavailable.");
+            _defaults[role] = endpointId;
+        }
+
+        public bool IsActiveCaptureEndpoint(string endpointId)
+        {
+            return Active.Contains(endpointId);
+        }
+
+        public string FindFallbackPhysicalCaptureEndpoint(string excludedEndpointId)
+        {
+            return String.Equals(FallbackEndpointId, excludedEndpointId, StringComparison.OrdinalIgnoreCase)
+                ? String.Empty
+                : FallbackEndpointId;
+        }
+
+        public void ProbePolicyAccess()
+        {
+        }
+
+        public void SetInitial(DefaultMicrophoneRole role, string endpointId)
+        {
+            _defaults[role] = endpointId;
+        }
+    }
+
     internal static class CoreTests
     {
         private static int _passed;
@@ -34,6 +81,9 @@ namespace VoiceDuck
             TestMusicShareRoutingHelpers();
             TestShareSettingsMigration();
             TestShareSettingsIgnoreLegacyFile();
+            TestDefaultMicrophoneSwitchAndRestore();
+            TestPendingMicrophoneRestoreSurvivesRestart();
+            TestFailedMicrophoneSwitchRollsBack();
             TestShareSampleProviders();
             Console.WriteLine("PASS " + _passed + " core tests");
         }
@@ -224,12 +274,14 @@ namespace VoiceDuck
                 TargetApps = new List<string>()
             };
             oldSettings.Normalize();
-            Assert(oldSettings.SettingsVersion == 3,
+            Assert(oldSettings.SettingsVersion == 4,
                 "old settings must be migrated to the current schema");
             AssertNear(0.65f, oldSettings.ShareMicrophoneGain, 0.001f,
                 "upgrading from 1.0 must not silently mute the shared microphone");
             AssertNear(0.55f, oldSettings.ShareMusicGain, 0.001f,
                 "upgrading from 1.0 must initialize the music mix level");
+            Assert(oldSettings.ShareAutoSwitchMicrophone,
+                "existing users must receive automatic microphone switching by default");
 
             AppSettings current = AppSettings.CreateDefault();
             current.ShareMicrophoneGain = 0.0f;
@@ -253,9 +305,111 @@ namespace VoiceDuck
                 var serializer = new DataContractJsonSerializer(typeof(AppSettings));
                 var settings = (AppSettings)serializer.ReadObject(stream);
                 settings.Normalize();
-                Assert(settings.SettingsVersion == 3 && settings.TriggerApps.Count == 1,
+                Assert(settings.SettingsVersion == 4 && settings.TriggerApps.Count == 1,
                     "legacy local-file settings must load without affecting live capture");
             }
+        }
+
+        private static void TestDefaultMicrophoneSwitchAndRestore()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "VoiceDuck-route-test-" + Guid.NewGuid().ToString("N"));
+            string recoveryPath = Path.Combine(folder, "restore.json");
+            Directory.CreateDirectory(folder);
+            try
+            {
+                var controller = CreateMicrophoneController();
+                var switcher = new DefaultMicrophoneSwitcher(controller, recoveryPath);
+                MicrophoneRouteResult switched = switcher.SwitchTo("cable");
+                Assert(switched.Succeeded && switched.Changed && File.Exists(recoveryPath),
+                    "automatic microphone switching must persist a recovery record before changing defaults");
+                Assert(AllRolesEqual(controller, "cable"),
+                    "automatic microphone switching must update console, multimedia, and communications roles");
+
+                controller.SetInitial(DefaultMicrophoneRole.Multimedia, "manual");
+                MicrophoneRouteResult restored = switcher.Restore();
+                Assert(restored.Succeeded && !File.Exists(recoveryPath),
+                    "stopping share must restore defaults and remove the recovery record");
+                Assert(controller.GetDefaultEndpointId(DefaultMicrophoneRole.Console) == "mic-a" &&
+                       controller.GetDefaultEndpointId(DefaultMicrophoneRole.Multimedia) == "manual" &&
+                       controller.GetDefaultEndpointId(DefaultMicrophoneRole.Communications) == "mic-c",
+                    "restore must preserve a microphone role that the user changed manually during sharing");
+            }
+            finally
+            {
+                if (Directory.Exists(folder)) Directory.Delete(folder, true);
+            }
+        }
+
+        private static void TestPendingMicrophoneRestoreSurvivesRestart()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "VoiceDuck-crash-test-" + Guid.NewGuid().ToString("N"));
+            string recoveryPath = Path.Combine(folder, "restore.json");
+            Directory.CreateDirectory(folder);
+            try
+            {
+                var controller = CreateMicrophoneController();
+                var firstInstance = new DefaultMicrophoneSwitcher(controller, recoveryPath);
+                Assert(firstInstance.SwitchTo("cable").Succeeded,
+                    "initial microphone switch must succeed before crash recovery is tested");
+
+                var restartedInstance = new DefaultMicrophoneSwitcher(controller, recoveryPath);
+                MicrophoneRouteResult restored = restartedInstance.Restore();
+                Assert(restored.Succeeded &&
+                       controller.GetDefaultEndpointId(DefaultMicrophoneRole.Console) == "mic-a" &&
+                       controller.GetDefaultEndpointId(DefaultMicrophoneRole.Multimedia) == "mic-b" &&
+                       controller.GetDefaultEndpointId(DefaultMicrophoneRole.Communications) == "mic-c",
+                    "a new VoiceDuck process must recover microphone defaults left by an interrupted session");
+            }
+            finally
+            {
+                if (Directory.Exists(folder)) Directory.Delete(folder, true);
+            }
+        }
+
+        private static void TestFailedMicrophoneSwitchRollsBack()
+        {
+            string folder = Path.Combine(Path.GetTempPath(), "VoiceDuck-rollback-test-" + Guid.NewGuid().ToString("N"));
+            string recoveryPath = Path.Combine(folder, "restore.json");
+            Directory.CreateDirectory(folder);
+            try
+            {
+                var controller = CreateMicrophoneController();
+                controller.FailNextSetRole = DefaultMicrophoneRole.Multimedia;
+                var switcher = new DefaultMicrophoneSwitcher(controller, recoveryPath);
+                MicrophoneRouteResult result = switcher.SwitchTo("cable");
+                Assert(!result.Succeeded,
+                    "a partial Windows policy failure must fail the automatic microphone switch");
+                Assert(controller.GetDefaultEndpointId(DefaultMicrophoneRole.Console) == "mic-a" &&
+                       controller.GetDefaultEndpointId(DefaultMicrophoneRole.Multimedia) == "mic-b" &&
+                       controller.GetDefaultEndpointId(DefaultMicrophoneRole.Communications) == "mic-c" &&
+                       !File.Exists(recoveryPath),
+                    "a partial microphone switch must roll every changed role back immediately");
+            }
+            finally
+            {
+                if (Directory.Exists(folder)) Directory.Delete(folder, true);
+            }
+        }
+
+        private static FakeDefaultCaptureEndpointController CreateMicrophoneController()
+        {
+            var controller = new FakeDefaultCaptureEndpointController();
+            foreach (string endpoint in new[] { "mic-a", "mic-b", "mic-c", "manual", "cable" })
+                controller.Active.Add(endpoint);
+            controller.FallbackEndpointId = "mic-a";
+            controller.SetInitial(DefaultMicrophoneRole.Console, "mic-a");
+            controller.SetInitial(DefaultMicrophoneRole.Multimedia, "mic-b");
+            controller.SetInitial(DefaultMicrophoneRole.Communications, "mic-c");
+            return controller;
+        }
+
+        private static bool AllRolesEqual(
+            FakeDefaultCaptureEndpointController controller,
+            string endpointId)
+        {
+            return controller.GetDefaultEndpointId(DefaultMicrophoneRole.Console) == endpointId &&
+                   controller.GetDefaultEndpointId(DefaultMicrophoneRole.Multimedia) == endpointId &&
+                   controller.GetDefaultEndpointId(DefaultMicrophoneRole.Communications) == endpointId;
         }
 
         private static void Assert(bool value, string message)

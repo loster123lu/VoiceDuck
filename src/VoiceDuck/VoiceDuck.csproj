@@ -6,6 +6,7 @@
     <RootNamespace>VoiceDuck</RootNamespace>
     <AssemblyName>VoiceDuck</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\VoiceDuck.ico</ApplicationIcon>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <LangVersion>5</LangVersion>
     <PlatformTarget>AnyCPU</PlatformTarget>

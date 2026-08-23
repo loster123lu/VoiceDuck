@@ -27,6 +27,8 @@ foreach ($required in @($naudioCore, $naudioWasapi, $netstandard, $driverArchive
 $sources = Get-ChildItem -LiteralPath $sourceDirectory -Filter '*.cs' | Sort-Object Name
 $applicationPath = Join-Path $OutputDirectory 'VoiceDuck.exe'
 $manifestPath = Join-Path $sourceDirectory 'app.manifest'
+$iconPath = Join-Path $sourceDirectory 'Assets\VoiceDuck.ico'
+if (-not (Test-Path -LiteralPath $iconPath)) { throw "Application icon was not found: $iconPath" }
 
 $compilerArguments = @(
     '/nologo',
@@ -36,6 +38,7 @@ $compilerArguments = @(
     '/debug:pdbonly',
     '/codepage:65001',
     "/win32manifest:$manifestPath",
+    "/win32icon:$iconPath",
     "/out:$applicationPath",
     '/reference:System.dll',
     '/reference:System.Core.dll',
@@ -62,6 +65,7 @@ $testSources = @(
     (Join-Path $sourceDirectory 'MusicShareCore.cs'),
     (Join-Path $sourceDirectory 'AudioEndpoints.cs'),
     (Join-Path $sourceDirectory 'MusicShareAudioEngine.cs'),
+    (Join-Path $sourceDirectory 'DefaultMicrophoneSwitcher.cs'),
     (Join-Path $sourceDirectory 'VoiceGate.cs'),
     (Join-Path $sourceDirectory 'DuckingCoordinator.cs'),
     (Join-Path $projectRoot 'tests\CoreTests\CoreTests.cs')
@@ -95,6 +99,7 @@ $smokeSources = @(
     (Join-Path $sourceDirectory 'MusicShareCore.cs'),
     (Join-Path $sourceDirectory 'CaptureDevices.cs'),
     (Join-Path $sourceDirectory 'AudioEndpoints.cs'),
+    (Join-Path $sourceDirectory 'DefaultMicrophoneSwitcher.cs'),
     (Join-Path $sourceDirectory 'AudioRecovery.cs'),
     (Join-Path $sourceDirectory 'CoreAudio.cs'),
     (Join-Path $projectRoot 'tests\AudioSmokeTest\AudioSmokeTest.cs')
@@ -170,6 +175,7 @@ $uiArguments = @(
     '/optimize+',
     '/codepage:65001',
     "/out:$uiTestPath",
+    "/win32icon:$iconPath",
     '/reference:System.dll',
     '/reference:System.Core.dll',
     '/reference:System.Drawing.dll',
