@@ -2,7 +2,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 
 [assembly: AssemblyTitle("VoiceDuck")]
-[assembly: AssemblyDescription("Windows per-application audio ducking and safe call music sharing")]
+[assembly: AssemblyDescription("Windows per-application audio ducking and real-time call audio sharing")]
 [assembly: AssemblyCompany("VoiceDuck contributors")]
 [assembly: AssemblyProduct("VoiceDuck")]
 [assembly: AssemblyCopyright("Copyright © 2026")]

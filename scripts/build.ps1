@@ -159,27 +159,6 @@ if ($LASTEXITCODE -ne 0) { throw "VoiceDuck driver package test build failed wit
 & $driverTestPath
 if ($LASTEXITCODE -ne 0) { throw "VoiceDuck driver package verification failed with exit code $LASTEXITCODE" }
 
-$decodeTestPath = Join-Path $OutputDirectory 'VoiceDuck.MediaDecodeTest.exe'
-$decodeTestArguments = @(
-    '/nologo',
-    '/target:exe',
-    '/platform:anycpu',
-    '/optimize+',
-    '/codepage:65001',
-    "/out:$decodeTestPath",
-    '/reference:System.dll',
-    '/reference:System.Core.dll',
-    "/reference:$netstandard",
-    "/reference:$naudioCore",
-    "/reference:$naudioWasapi"
-)
-$decodeTestArguments += (Join-Path $projectRoot 'tests\MediaDecodeTest\MediaDecodeTest.cs')
-& $compiler $decodeTestArguments
-if ($LASTEXITCODE -ne 0) { throw "VoiceDuck media decode test build failed with exit code $LASTEXITCODE" }
-
-& $decodeTestPath
-if ($LASTEXITCODE -ne 0) { throw "VoiceDuck Media Foundation decode test failed with exit code $LASTEXITCODE" }
-
 $uiTestPath = Join-Path $OutputDirectory 'VoiceDuck.UiRenderTest.exe'
 $uiSources = Get-ChildItem -LiteralPath $sourceDirectory -Filter '*.cs' |
     Where-Object { $_.Name -ne 'Program.cs' } |

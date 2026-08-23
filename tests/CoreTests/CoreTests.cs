@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Runtime.Serialization.Json;
+using System.Text;
 using NAudio.Wave;
 
 namespace VoiceDuck
@@ -30,6 +33,7 @@ namespace VoiceDuck
             TestMusicShareLoopbackNames();
             TestMusicShareRoutingHelpers();
             TestShareSettingsMigration();
+            TestShareSettingsIgnoreLegacyFile();
             TestShareSampleProviders();
             Console.WriteLine("PASS " + _passed + " core tests");
         }
@@ -150,10 +154,6 @@ namespace VoiceDuck
                 "VB-CABLE capture endpoint must be recognized");
             Assert(!MusicShareCore.IsVbCableCaptureName("VoiceMeeter Output"),
                 "other virtual endpoints must not be mistaken for the managed cable");
-            Assert(MusicShareCore.IsSupportedAudioFile(@"C:\Music\track.MP3"),
-                "MP3 extension matching must be case insensitive");
-            Assert(!MusicShareCore.IsSupportedAudioFile(@"C:\Music\notes.txt"),
-                "non-audio files must be rejected");
             AssertNear(1.5f, MusicShareCore.ClampGain(8.0f), 0.001f,
                 "share gain must stay inside the safe range");
 
@@ -187,6 +187,27 @@ namespace VoiceDuck
             Assert(pause.Read(buffer, 0, 1) == 1 && Math.Abs(buffer[0] - 0.6f) < 0.001f,
                 "unpausing must continue from the same music position");
 
+            var delayed = new InitialDelaySampleProvider(new ArraySampleProvider(0.7f), 1);
+            buffer = new float[96];
+            Assert(delayed.Read(buffer, 0, buffer.Length) == 96,
+                "live playback delay must emit a full silent frame");
+            bool allSilent = true;
+            for (int index = 0; index < buffer.Length; index++)
+                if (Math.Abs(buffer[index]) > 0.0001f) allSilent = false;
+            Assert(allSilent, "live playback delay must not leak early samples");
+            buffer = new float[1];
+            Assert(delayed.Read(buffer, 0, 1) == 1 && Math.Abs(buffer[0] - 0.7f) < 0.001f,
+                "live playback must continue after the protection delay");
+
+            var liveGate = new LiveAudioGateSampleProvider(new ArraySampleProvider(0.3f, 0.8f));
+            liveGate.RemoteAudioBlocked = true;
+            buffer = new float[1];
+            Assert(liveGate.Read(buffer, 0, 1) == 1 && Math.Abs(buffer[0]) < 0.0001f,
+                "echo protection must silence remote-call audio");
+            liveGate.RemoteAudioBlocked = false;
+            Assert(liveGate.Read(buffer, 0, 1) == 1 && Math.Abs(buffer[0] - 0.8f) < 0.001f,
+                "echo protection must consume blocked audio instead of replaying it later");
+
             var limiter = new HardLimiterSampleProvider(new ArraySampleProvider(2.0f, -2.0f), 0.96f);
             buffer = new float[2];
             limiter.Read(buffer, 0, 2);
@@ -203,7 +224,7 @@ namespace VoiceDuck
                 TargetApps = new List<string>()
             };
             oldSettings.Normalize();
-            Assert(oldSettings.SettingsVersion == 2,
+            Assert(oldSettings.SettingsVersion == 3,
                 "old settings must be migrated to the current schema");
             AssertNear(0.65f, oldSettings.ShareMicrophoneGain, 0.001f,
                 "upgrading from 1.0 must not silently mute the shared microphone");
@@ -218,6 +239,23 @@ namespace VoiceDuck
                 "an explicit microphone mute must survive normalization");
             AssertNear(0.0f, current.ShareMusicGain, 0.001f,
                 "an explicit music mute must survive normalization");
+        }
+
+        private static void TestShareSettingsIgnoreLegacyFile()
+        {
+            const string legacyJson =
+                "{\"SettingsVersion\":2,\"ShareMusicFile\":\"C:\\\\Music\\\\old.mp3\"," +
+                "\"ShareMicrophoneGain\":0.65,\"ShareMusicGain\":0.55," +
+                "\"TriggerApps\":[\"weixin\"],\"TargetApps\":[]}";
+            byte[] bytes = Encoding.UTF8.GetBytes(legacyJson);
+            using (var stream = new MemoryStream(bytes))
+            {
+                var serializer = new DataContractJsonSerializer(typeof(AppSettings));
+                var settings = (AppSettings)serializer.ReadObject(stream);
+                settings.Normalize();
+                Assert(settings.SettingsVersion == 3 && settings.TriggerApps.Count == 1,
+                    "legacy local-file settings must load without affecting live capture");
+            }
         }
 
         private static void Assert(bool value, string message)

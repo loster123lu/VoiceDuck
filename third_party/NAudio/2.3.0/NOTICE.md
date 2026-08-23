@@ -1,7 +1,7 @@
 # NAudio 2.3.0
 
-VoiceDuck uses `NAudio.Core` and `NAudio.Wasapi` 2.3.0 for Windows audio capture,
-playback, Media Foundation decoding, resampling, and mixing.
+VoiceDuck uses `NAudio.Core` and `NAudio.Wasapi` 2.3.0 for Windows microphone and
+loopback capture, playback, Media Foundation resampling, buffering, and mixing.
 
 - Project: https://github.com/naudio/NAudio
 - NuGet: https://www.nuget.org/packages/NAudio/2.3.0

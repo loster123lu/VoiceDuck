@@ -2,7 +2,7 @@
 
 ## NAudio 2.3.0
 
-VoiceDuck 使用 `NAudio.Core` 与 `NAudio.Wasapi` 2.3.0 进行 WASAPI 捕获/播放、Media Foundation 解码与重采样、缓冲和混音。
+VoiceDuck 使用 `NAudio.Core` 与 `NAudio.Wasapi` 2.3.0 进行 WASAPI 麦克风/播放端点捕获、Media Foundation 重采样、缓冲、混音与虚拟端点播放。
 
 - 项目：https://github.com/naudio/NAudio
 - NuGet：https://www.nuget.org/packages/NAudio/2.3.0

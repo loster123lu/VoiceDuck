@@ -279,6 +279,7 @@ namespace VoiceDuck
         private AppSettings _settings;
         private List<AudioSessionInfo> _snapshot = new List<AudioSessionInfo>();
         private EngineStatus _status = new EngineStatus { TriggerPeakDb = -96.0f };
+        private CallAudioActivity _callActivity = new CallAudioActivity { PeakDb = -96.0f };
         private AudioSessionGraph _graph;
 
         public AudioEngineService(AppSettings settings)
@@ -318,6 +319,11 @@ namespace VoiceDuck
             lock (_sync) return _status.Clone();
         }
 
+        public CallAudioActivity GetCallActivity()
+        {
+            lock (_sync) return _callActivity.Clone();
+        }
+
         public void Stop()
         {
             if (!_running) return;
@@ -336,7 +342,7 @@ namespace VoiceDuck
         {
             int hr = CoInitializeEx(IntPtr.Zero, 0);
             bool shouldUninitialize = hr >= 0;
-            int refreshElapsed = 1000;
+            int refreshElapsed = 250;
             int snapshotElapsed = 200;
             try
             {
@@ -347,7 +353,7 @@ namespace VoiceDuck
                     lock (_sync) settings = _settings.Clone();
                     try
                     {
-                        if (refreshElapsed >= 1000 || _refreshRequested)
+                        if (refreshElapsed >= 250 || _refreshRequested)
                         {
                             _graph.Refresh();
                             refreshElapsed = 0;
@@ -355,7 +361,10 @@ namespace VoiceDuck
                         }
 
                         IList<IDuckableSession> sessions = _graph.Sessions;
+                        CallAudioActivity callActivity = MeasureCallActivity(sessions, settings.TriggerApps);
                         _coordinator.Tick(sessions, settings, 50);
+
+                        lock (_sync) _callActivity = callActivity;
 
                         if (snapshotElapsed >= 200)
                         {
@@ -383,6 +392,11 @@ namespace VoiceDuck
                             _status.LastError = ex.Message;
                             _status.Enabled = settings.Enabled;
                             _status.Ducking = false;
+                            _callActivity = new CallAudioActivity
+                            {
+                                ProcessName = "音频检测故障",
+                                PeakDb = 0.0f
+                            };
                         }
                     }
 
@@ -405,6 +419,41 @@ namespace VoiceDuck
                 }
                 if (shouldUninitialize) CoUninitialize();
             }
+        }
+
+        private static CallAudioActivity MeasureCallActivity(
+            IList<IDuckableSession> sessions,
+            IEnumerable<string> configuredNames)
+        {
+            var result = new CallAudioActivity
+            {
+                ProcessName = String.Empty,
+                PeakDb = -96.0f
+            };
+            if (sessions == null) return result;
+
+            foreach (IDuckableSession session in sessions)
+            {
+                if (session == null ||
+                    !MusicShareCore.LooksLikeCallProcess(session.ProcessName, configuredNames))
+                    continue;
+                try
+                {
+                    float peakDb = VoiceGate.LinearToDb(session.ReadPeak());
+                    if (peakDb > result.PeakDb)
+                    {
+                        result.ProcessName = AppSettings.NormalizeProcessName(session.ProcessName);
+                        result.PeakDb = peakDb;
+                    }
+                }
+                catch
+                {
+                    result.ProcessName = AppSettings.NormalizeProcessName(session.ProcessName);
+                    result.PeakDb = 0.0f;
+                    break;
+                }
+            }
+            return result;
         }
 
         [DllImport("ole32.dll")]

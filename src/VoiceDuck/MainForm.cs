@@ -62,7 +62,7 @@ namespace VoiceDuck
             _settings = settings;
             _startHidden = startHidden;
             _service = new AudioEngineService(settings);
-            _musicShareService = new MusicShareAudioEngine();
+            _musicShareService = new MusicShareAudioEngine(_service.GetCallActivity);
 
             Text = "VoiceDuck · 智能语音闪避";
             ClientSize = new Size(930, 700);

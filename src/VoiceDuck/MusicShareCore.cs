@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace VoiceDuck
 {
@@ -23,11 +22,6 @@ namespace VoiceDuck
         {
             "stereo mix", "waveout mix", "mixed output", "what u hear",
             "what you hear", "立体声混音", "混合输出"
-        };
-
-        private static readonly string[] SupportedExtensions =
-        {
-            ".mp3", ".wav", ".m4a", ".aac", ".wma", ".flac"
         };
 
         public static bool IsLoopbackCaptureName(string value)
@@ -65,15 +59,6 @@ namespace VoiceDuck
             string normalized = NormalizeDeviceName(value);
             return normalized.Contains("cableoutput") &&
                    (normalized.Contains("vbaudio") || normalized == "cableoutput");
-        }
-
-        public static bool IsSupportedAudioFile(string path)
-        {
-            if (String.IsNullOrWhiteSpace(path)) return false;
-            string extension = Path.GetExtension(path).ToLowerInvariant();
-            foreach (string candidate in SupportedExtensions)
-                if (extension == candidate) return true;
-            return false;
         }
 
         public static float ClampGain(float value)

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
-using System.IO;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -25,7 +24,6 @@ namespace VoiceDuck
         private readonly System.Windows.Forms.Timer _timer;
         private ComboBox _microphoneBox;
         private ComboBox _monitorBox;
-        private TextBox _musicPathBox;
         private TrackBar _microphoneGain;
         private TrackBar _musicGain;
         private Label _microphoneGainLabel;
@@ -86,7 +84,7 @@ namespace VoiceDuck
             Label title = CreateLabel("让对方听到你的音乐", 18.0f, FontStyle.Bold, TextColor);
             title.SetBounds(24, 18, 360, 34);
             Controls.Add(title);
-            Label subtitle = CreateLabel("音乐单独送到耳机，麦克风＋音乐送到 CABLE Output；不会采集对方声音", 9.2f, FontStyle.Regular, SubtleColor);
+            Label subtitle = CreateLabel("实时监听当前耳机/音箱；对方讲话时自动屏蔽回声，麦克风始终发送", 9.2f, FontStyle.Regular, SubtleColor);
             subtitle.SetBounds(26, 55, 730, 24);
             Controls.Add(subtitle);
 
@@ -116,32 +114,24 @@ namespace VoiceDuck
 
             Panel routeCard = CreateCard(24, 218, 742, 210);
             Controls.Add(routeCard);
-            Label routeTitle = CreateLabel("② 选择输入、耳机和音乐", 11.5f, FontStyle.Bold, TextColor);
+            Label routeTitle = CreateLabel("② 选择麦克风和正在播放的设备", 11.5f, FontStyle.Bold, TextColor);
             routeTitle.SetBounds(16, 12, 300, 25);
             routeCard.Controls.Add(routeTitle);
             AddFieldLabel(routeCard, "你的麦克风", 18, 48);
             _microphoneBox = CreateComboBox();
             _microphoneBox.SetBounds(142, 44, 570, 30);
             routeCard.Controls.Add(_microphoneBox);
-            AddFieldLabel(routeCard, "本地耳机/音箱", 18, 84);
+            AddFieldLabel(routeCard, "正在播放的设备", 18, 84);
             _monitorBox = CreateComboBox();
             _monitorBox.SetBounds(142, 80, 570, 30);
             routeCard.Controls.Add(_monitorBox);
-            AddFieldLabel(routeCard, "要分享的音乐", 18, 120);
-            _musicPathBox = new TextBox();
-            _musicPathBox.ReadOnly = true;
-            _musicPathBox.BackColor = Color.FromArgb(20, 27, 38);
-            _musicPathBox.ForeColor = TextColor;
-            _musicPathBox.BorderStyle = BorderStyle.FixedSingle;
-            _musicPathBox.SetBounds(142, 117, 444, 28);
-            routeCard.Controls.Add(_musicPathBox);
-            Button browseButton = CreateButton("选择文件…", AccentColor, Color.White);
-            browseButton.SetBounds(596, 115, 116, 31);
-            browseButton.Click += BrowseMusic;
-            routeCard.Controls.Add(browseButton);
-            Label formatNote = CreateLabel("支持 MP3 / WAV / M4A / AAC / WMA / FLAC（使用 Windows 本机解码器）", 8.2f, FontStyle.Regular, SubtleColor);
-            formatNote.SetBounds(142, 151, 570, 22);
-            routeCard.Controls.Add(formatNote);
+            AddFieldLabel(routeCard, "分享来源", 18, 120);
+            Label liveSource = CreateLabel("实时监听上面的设备（无需选择 MP3 或其他文件）", 9.0f, FontStyle.Bold, GreenColor);
+            liveSource.SetBounds(142, 117, 570, 24);
+            routeCard.Controls.Add(liveSource);
+            Label echoNote = CreateLabel("对方讲话时自动暂停转发设备声；你的麦克风不受影响", 8.2f, FontStyle.Regular, SubtleColor);
+            echoNote.SetBounds(142, 143, 570, 22);
+            routeCard.Controls.Add(echoNote);
             Button refreshButton = CreateButton("刷新设备", Color.FromArgb(48, 60, 77), TextColor);
             refreshButton.SetBounds(18, 166, 110, 30);
             refreshButton.Click += delegate { RefreshDevices(); };
@@ -160,7 +150,7 @@ namespace VoiceDuck
             mixTitle.SetBounds(16, 10, 180, 25);
             mixCard.Controls.Add(mixTitle);
             AddGainSlider(mixCard, "麦克风", 18, 42, out _microphoneGain, out _microphoneGainLabel);
-            AddGainSlider(mixCard, "音乐", 385, 42, out _musicGain, out _musicGainLabel);
+            AddGainSlider(mixCard, "播放声", 385, 42, out _musicGain, out _musicGainLabel);
             _microphoneGain.ValueChanged += GainChanged;
             _musicGain.ValueChanged += GainChanged;
 
@@ -175,7 +165,7 @@ namespace VoiceDuck
             _startButton.SetBounds(28, 605, 150, 42);
             _startButton.Click += StartSharing;
             Controls.Add(_startButton);
-            _pauseButton = CreateButton("暂停音乐", Color.FromArgb(48, 60, 77), TextColor);
+            _pauseButton = CreateButton("暂停播放声", Color.FromArgb(48, 60, 77), TextColor);
             _pauseButton.SetBounds(188, 605, 132, 42);
             _pauseButton.Click += delegate { _engine.TogglePause(); };
             Controls.Add(_pauseButton);
@@ -188,7 +178,7 @@ namespace VoiceDuck
             _shareStatus.SetBounds(482, 582, 280, 26);
             _shareStatus.TextAlign = ContentAlignment.MiddleRight;
             Controls.Add(_shareStatus);
-            _timeLabel = CreateLabel("00:00 / 00:00", 8.5f, FontStyle.Regular, SubtleColor);
+            _timeLabel = CreateLabel("实时监听延迟约 350 ms", 8.5f, FontStyle.Regular, SubtleColor);
             _timeLabel.SetBounds(482, 610, 280, 22);
             _timeLabel.TextAlign = ContentAlignment.MiddleRight;
             Controls.Add(_timeLabel);
@@ -196,7 +186,7 @@ namespace VoiceDuck
             _musicMeter = CreateMeter(626, 640, 132);
             Controls.Add(_microphoneMeter);
             Controls.Add(_musicMeter);
-            Label meterLabels = CreateLabel("麦克风电平                         音乐电平", 7.8f, FontStyle.Regular, SubtleColor);
+            Label meterLabels = CreateLabel("麦克风电平                         播放声电平", 7.8f, FontStyle.Regular, SubtleColor);
             meterLabels.SetBounds(482, 666, 278, 20);
             Controls.Add(meterLabels);
         }
@@ -207,7 +197,6 @@ namespace VoiceDuck
             try
             {
                 _settings.Normalize();
-                _musicPathBox.Text = _settings.ShareMusicFile;
                 _microphoneGain.Value = Clamp((int)Math.Round(_settings.ShareMicrophoneGain * 100), 0, 150);
                 _musicGain.Value = Clamp((int)Math.Round(_settings.ShareMusicGain * 100), 0, 150);
                 UpdateGainLabels();
@@ -336,21 +325,6 @@ namespace VoiceDuck
             });
         }
 
-        private void BrowseMusic(object sender, EventArgs eventArgs)
-        {
-            using (var dialog = new OpenFileDialog())
-            {
-                dialog.Title = "选择要在通话中分享的音乐";
-                dialog.Filter = "音频文件|*.mp3;*.wav;*.m4a;*.aac;*.wma;*.flac|所有文件|*.*";
-                dialog.CheckFileExists = true;
-                dialog.Multiselect = false;
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                _musicPathBox.Text = dialog.FileName;
-                _settings.ShareMusicFile = dialog.FileName;
-                SaveSettings();
-            }
-        }
-
         private void StartSharing(object sender, EventArgs eventArgs)
         {
             try
@@ -359,14 +333,12 @@ namespace VoiceDuck
                 if (!cable.Ready) throw new InvalidOperationException(cable.Message);
                 AudioEndpointChoice microphone = _microphoneBox.SelectedItem as AudioEndpointChoice;
                 AudioEndpointChoice monitor = _monitorBox.SelectedItem as AudioEndpointChoice;
-                if (microphone == null || monitor == null) throw new InvalidOperationException("请选择真实麦克风和本地耳机。");
-                if (!File.Exists(_musicPathBox.Text)) throw new FileNotFoundException("请先选择一个本地音乐文件。");
+                if (microphone == null || monitor == null) throw new InvalidOperationException("请选择真实麦克风和正在播放的设备。");
                 if (!_routingCheck.Checked)
                     throw new InvalidOperationException("请先确认微信/QQ 的输入与输出路由，避免对方听不到声音或产生回声。");
 
                 _settings.ShareMicrophoneDevice = microphone.Id;
                 _settings.ShareMonitorDevice = monitor.Id;
-                _settings.ShareMusicFile = _musicPathBox.Text;
                 _settings.ShareMicrophoneGain = _microphoneGain.Value / 100.0f;
                 _settings.ShareMusicGain = _musicGain.Value / 100.0f;
                 SaveSettings();
@@ -374,7 +346,6 @@ namespace VoiceDuck
                 {
                     MicrophoneEndpointId = microphone.Id,
                     MonitorEndpointId = monitor.Id,
-                    MusicFilePath = _musicPathBox.Text,
                     MicrophoneGain = _settings.ShareMicrophoneGain,
                     MusicGain = _settings.ShareMusicGain
                 });
@@ -400,30 +371,42 @@ namespace VoiceDuck
             MusicShareStatus status = _engine.GetStatus();
             _microphoneMeter.Value = PeakToMeter(status.MicrophonePeak);
             _musicMeter.Value = PeakToMeter(status.MusicPeak);
-            _timeLabel.Text = FormatTime(status.Position) + " / " + FormatTime(status.Duration);
             if (!String.IsNullOrWhiteSpace(status.LastError))
             {
                 _shareStatus.Text = "音频错误";
                 _shareStatus.ForeColor = OrangeColor;
-            }
-            else if (status.TrackEnded)
-            {
-                _shareStatus.Text = "音乐已播完 · 麦克风仍在分享";
-                _shareStatus.ForeColor = OrangeColor;
+                _timeLabel.Text = status.LastError;
             }
             else if (status.Running)
             {
-                _shareStatus.Text = status.Paused ? "音乐已暂停 · 麦克风仍在分享" : "正在分享 · " + status.TrackName;
-                _shareStatus.ForeColor = GreenColor;
+                if (status.Paused)
+                {
+                    _shareStatus.Text = "设备声音已暂停 · 麦克风仍在分享";
+                    _shareStatus.ForeColor = OrangeColor;
+                    _timeLabel.Text = "实时监听已暂停";
+                }
+                else if (status.RemoteAudioBlocked)
+                {
+                    _shareStatus.Text = "对方讲话 · 已屏蔽回声";
+                    _shareStatus.ForeColor = OrangeColor;
+                    _timeLabel.Text = "回声保护正在工作";
+                }
+                else
+                {
+                    _shareStatus.Text = "正在分享设备声音";
+                    _shareStatus.ForeColor = GreenColor;
+                    _timeLabel.Text = "实时监听 · 延迟约 " + status.DelayMilliseconds + " ms";
+                }
             }
             else
             {
                 _shareStatus.Text = "尚未开始分享";
                 _shareStatus.ForeColor = SubtleColor;
+                _timeLabel.Text = "实时监听延迟约 " + status.DelayMilliseconds + " ms";
             }
             _startButton.Enabled = !status.Running;
-            _pauseButton.Enabled = status.Running && !status.TrackEnded;
-            _pauseButton.Text = status.Paused ? "继续音乐" : "暂停音乐";
+            _pauseButton.Enabled = status.Running;
+            _pauseButton.Text = status.Paused ? "继续播放声" : "暂停播放声";
             _stopButton.Enabled = status.Running;
         }
 
@@ -557,12 +540,6 @@ namespace VoiceDuck
             if (peak <= 0.00001f) return 0;
             double db = 20.0 * Math.Log10(peak);
             return Clamp((int)Math.Round((db + 60.0) / 60.0 * 100.0), 0, 100);
-        }
-
-        private static string FormatTime(TimeSpan time)
-        {
-            if (time < TimeSpan.Zero) time = TimeSpan.Zero;
-            return ((int)time.TotalMinutes).ToString("00") + ":" + time.Seconds.ToString("00");
         }
 
         private static int Clamp(int value, int minimum, int maximum)

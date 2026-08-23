@@ -21,7 +21,6 @@ namespace VoiceDuck
         [DataMember] public string ShareMonitorDevice { get; set; }
         [DataMember] public float ShareMicrophoneGain { get; set; }
         [DataMember] public float ShareMusicGain { get; set; }
-        [DataMember] public string ShareMusicFile { get; set; }
         [DataMember] public List<string> TriggerApps { get; set; }
         [DataMember] public List<string> TargetApps { get; set; }
 
@@ -29,7 +28,7 @@ namespace VoiceDuck
         {
             return new AppSettings
             {
-                SettingsVersion = 2,
+                SettingsVersion = 3,
                 Enabled = false,
                 DuckAllOtherAudio = false,
                 MinimizeToTray = true,
@@ -43,7 +42,6 @@ namespace VoiceDuck
                 ShareMonitorDevice = String.Empty,
                 ShareMicrophoneGain = 0.65f,
                 ShareMusicGain = 0.55f,
-                ShareMusicFile = String.Empty,
                 TriggerApps = new List<string>
                 {
                     "wechat", "weixin", "qq", "wxwork", "discord", "teams", "ms-teams", "zoom"
@@ -61,8 +59,8 @@ namespace VoiceDuck
             {
                 ShareMicrophoneGain = 0.65f;
                 ShareMusicGain = 0.55f;
-                SettingsVersion = 2;
             }
+            SettingsVersion = 3;
             DuckRatio = Clamp(DuckRatio, 0.02f, 1.0f);
             ThresholdDb = Clamp(ThresholdDb, -70.0f, -5.0f);
             TriggerDelayMs = Clamp(TriggerDelayMs, 0, 2000);
@@ -73,7 +71,6 @@ namespace VoiceDuck
             ShareMonitorDevice = (ShareMonitorDevice ?? String.Empty).Trim();
             ShareMicrophoneGain = Clamp(ShareMicrophoneGain, 0.0f, 1.5f);
             ShareMusicGain = Clamp(ShareMusicGain, 0.0f, 1.5f);
-            ShareMusicFile = (ShareMusicFile ?? String.Empty).Trim();
             if (TriggerApps == null) TriggerApps = new List<string>();
             if (TargetApps == null) TargetApps = new List<string>();
             TriggerApps = NormalizeList(TriggerApps);
@@ -98,7 +95,6 @@ namespace VoiceDuck
                 ShareMonitorDevice = ShareMonitorDevice,
                 ShareMicrophoneGain = ShareMicrophoneGain,
                 ShareMusicGain = ShareMusicGain,
-                ShareMusicFile = ShareMusicFile,
                 TriggerApps = new List<string>(TriggerApps ?? new List<string>()),
                 TargetApps = new List<string>(TargetApps ?? new List<string>())
             };
@@ -165,6 +161,17 @@ namespace VoiceDuck
         public EngineStatus Clone()
         {
             return (EngineStatus)MemberwiseClone();
+        }
+    }
+
+    internal sealed class CallAudioActivity
+    {
+        public string ProcessName { get; set; }
+        public float PeakDb { get; set; }
+
+        public CallAudioActivity Clone()
+        {
+            return (CallAudioActivity)MemberwiseClone();
         }
     }
 }

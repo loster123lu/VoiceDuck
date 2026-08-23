@@ -1,5 +1,5 @@
 using System;
-using System.IO;
+using System.Threading;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
@@ -10,7 +10,6 @@ namespace VoiceDuck
     {
         public string MicrophoneEndpointId { get; set; }
         public string MonitorEndpointId { get; set; }
-        public string MusicFilePath { get; set; }
         public float MicrophoneGain { get; set; }
         public float MusicGain { get; set; }
     }
@@ -19,119 +18,128 @@ namespace VoiceDuck
     {
         public bool Running { get; set; }
         public bool Paused { get; set; }
-        public bool TrackEnded { get; set; }
-        public string TrackName { get; set; }
+        public bool RemoteAudioBlocked { get; set; }
+        public string SourceName { get; set; }
         public string LastError { get; set; }
         public float MicrophonePeak { get; set; }
         public float MusicPeak { get; set; }
-        public TimeSpan Position { get; set; }
-        public TimeSpan Duration { get; set; }
+        public int DelayMilliseconds { get; set; }
     }
 
     internal sealed class MusicShareAudioEngine : IDisposable
     {
+        internal const int PlaybackDelayMilliseconds = 350;
+        internal const int EchoProtectionHoldMilliseconds = 700;
+        internal const float RemoteSpeechThresholdDb = -58.0f;
+
         private static readonly WaveFormat TargetFormat = WaveFormat.CreateIeeeFloatWaveFormat(48000, 2);
         private readonly object _sync = new object();
+        private readonly Func<CallAudioActivity> _callActivityProvider;
 
         private MMDevice _microphoneDevice;
         private MMDevice _monitorDevice;
         private MMDevice _cableRenderDevice;
         private WasapiCapture _microphoneCapture;
+        private WasapiLoopbackCapture _playbackCapture;
         private BufferedWaveProvider _microphoneBuffer;
-        private WasapiOut _monitorOutput;
-        private WasapiOut _cableOutput;
+        private BufferedWaveProvider _playbackBuffer;
         private MediaFoundationResampler _microphoneResampler;
-        private MediaFoundationReader _monitorReader;
-        private MediaFoundationReader _shareReader;
-        private MediaFoundationResampler _monitorResampler;
-        private MediaFoundationResampler _shareResampler;
-        private PauseSampleProvider _monitorGate;
-        private PauseSampleProvider _shareGate;
+        private MediaFoundationResampler _playbackResampler;
+        private WasapiOut _cableOutput;
+        private LiveAudioGateSampleProvider _playbackGate;
         private GainSampleProvider _microphoneGain;
-        private GainSampleProvider _monitorMusicGain;
-        private GainSampleProvider _shareMusicGain;
+        private GainSampleProvider _playbackGain;
         private PeakSampleProvider _microphoneMeter;
-        private PeakSampleProvider _musicMeter;
+        private PeakSampleProvider _playbackMeter;
+        private Thread _echoProtectionThread;
+        private volatile bool _echoProtectionStopRequested;
+        private volatile bool _remoteAudioBlocked;
+        private long _remoteBlockUntilTicks;
         private bool _running;
         private bool _paused;
-        private bool _trackEnded;
         private bool _stopping;
-        private string _trackName = String.Empty;
+        private string _sourceName = String.Empty;
         private string _lastError = String.Empty;
+
+        public MusicShareAudioEngine(Func<CallAudioActivity> callActivityProvider = null)
+        {
+            _callActivityProvider = callActivityProvider;
+        }
 
         public void Start(MusicShareStartOptions options)
         {
             if (options == null) throw new ArgumentNullException("options");
-            if (!File.Exists(options.MusicFilePath)) throw new FileNotFoundException("找不到要分享的音乐文件。", options.MusicFilePath);
-            if (!MusicShareCore.IsSupportedAudioFile(options.MusicFilePath))
-                throw new NotSupportedException("暂不支持这个音频格式。请选择 MP3、WAV、M4A、AAC、WMA 或 FLAC。");
+            if (_callActivityProvider == null)
+                throw new InvalidOperationException("通话声音检测器尚未就绪，无法安全启动实时分享。");
 
             lock (_sync)
             {
                 StopInternal();
                 _stopping = false;
                 _lastError = String.Empty;
-                _trackEnded = false;
                 _paused = false;
-                _trackName = Path.GetFileName(options.MusicFilePath);
+                _remoteAudioBlocked = false;
+                Interlocked.Exchange(ref _remoteBlockUntilTicks, 0L);
                 try
                 {
                     VirtualCableStatus cable = AudioEndpointCatalog.GetVirtualCableStatus();
                     if (!cable.Ready) throw new InvalidOperationException(cable.Message);
+
                     _microphoneDevice = AudioEndpointCatalog.OpenDevice(options.MicrophoneEndpointId);
                     _monitorDevice = AudioEndpointCatalog.OpenDevice(options.MonitorEndpointId);
                     _cableRenderDevice = AudioEndpointCatalog.OpenDevice(cable.RenderId);
                     if (MusicShareCore.IsVirtualCableName(_microphoneDevice.FriendlyName) ||
                         MusicShareCore.IsVirtualCableName(_monitorDevice.FriendlyName))
-                        throw new InvalidOperationException("麦克风和本地监听必须选择真实硬件设备，不能选择虚拟线缆。");
+                        throw new InvalidOperationException("麦克风和正在播放的设备必须选择真实硬件，不能选择虚拟线缆。");
+
+                    _sourceName = _monitorDevice.FriendlyName ?? "当前播放设备";
 
                     _microphoneCapture = new WasapiCapture(_microphoneDevice, true, 60);
-                    _microphoneBuffer = new BufferedWaveProvider(_microphoneCapture.WaveFormat)
-                    {
-                        BufferDuration = TimeSpan.FromMilliseconds(600),
-                        DiscardOnBufferOverflow = true,
-                        ReadFully = true
-                    };
+                    _microphoneBuffer = CreateCaptureBuffer(_microphoneCapture.WaveFormat, 900);
                     _microphoneCapture.DataAvailable += MicrophoneDataAvailable;
                     _microphoneCapture.RecordingStopped += MicrophoneRecordingStopped;
-
-                    // Capture in the hardware's native shared-mode format. Physical
-                    // microphones are often mono, so normalize sample rate and channel
-                    // count before mixing with the stereo music stream.
                     _microphoneResampler = new MediaFoundationResampler(_microphoneBuffer, TargetFormat)
                     {
                         ResamplerQuality = 60
                     };
 
-                    _monitorReader = OpenReader(options.MusicFilePath);
-                    _shareReader = OpenReader(options.MusicFilePath);
-                    _monitorResampler = new MediaFoundationResampler(_monitorReader, TargetFormat) { ResamplerQuality = 60 };
-                    _shareResampler = new MediaFoundationResampler(_shareReader, TargetFormat) { ResamplerQuality = 60 };
+                    _playbackCapture = new WasapiLoopbackCapture(_monitorDevice);
+                    _playbackBuffer = CreateCaptureBuffer(_playbackCapture.WaveFormat, 2000);
+                    _playbackCapture.DataAvailable += PlaybackDataAvailable;
+                    _playbackCapture.RecordingStopped += PlaybackRecordingStopped;
+                    _playbackResampler = new MediaFoundationResampler(_playbackBuffer, TargetFormat)
+                    {
+                        ResamplerQuality = 60
+                    };
 
-                    _monitorGate = new PauseSampleProvider(_monitorResampler.ToSampleProvider());
-                    _shareGate = new PauseSampleProvider(_shareResampler.ToSampleProvider());
-                    _monitorMusicGain = new GainSampleProvider(_monitorGate, options.MusicGain);
-                    _shareMusicGain = new GainSampleProvider(_shareGate, options.MusicGain);
-                    _microphoneGain = new GainSampleProvider(_microphoneResampler.ToSampleProvider(), options.MicrophoneGain);
+                    var delayedPlayback = new InitialDelaySampleProvider(
+                        _playbackResampler.ToSampleProvider(),
+                        PlaybackDelayMilliseconds);
+                    _playbackGate = new LiveAudioGateSampleProvider(delayedPlayback);
+                    _microphoneGain = new GainSampleProvider(
+                        _microphoneResampler.ToSampleProvider(),
+                        options.MicrophoneGain);
+                    _playbackGain = new GainSampleProvider(_playbackGate, options.MusicGain);
                     _microphoneMeter = new PeakSampleProvider(_microphoneGain);
-                    _musicMeter = new PeakSampleProvider(_shareMusicGain);
+                    _playbackMeter = new PeakSampleProvider(_playbackGain);
 
                     var outgoingMixer = new MixingSampleProvider(TargetFormat) { ReadFully = true };
                     outgoingMixer.AddMixerInput(_microphoneMeter);
-                    outgoingMixer.AddMixerInput(_musicMeter);
+                    outgoingMixer.AddMixerInput(_playbackMeter);
                     var limiter = new HardLimiterSampleProvider(outgoingMixer, 0.96f);
 
-                    _cableOutput = new WasapiOut(_cableRenderDevice, AudioClientShareMode.Shared, true, 60);
+                    _cableOutput = new WasapiOut(
+                        _cableRenderDevice,
+                        AudioClientShareMode.Shared,
+                        true,
+                        60);
                     _cableOutput.PlaybackStopped += CablePlaybackStopped;
                     _cableOutput.Init(limiter.ToWaveProvider());
 
-                    _monitorOutput = new WasapiOut(_monitorDevice, AudioClientShareMode.Shared, true, 60);
-                    _monitorOutput.PlaybackStopped += MonitorPlaybackStopped;
-                    _monitorOutput.Init(_monitorMusicGain.ToWaveProvider());
-
                     _microphoneCapture.StartRecording();
+                    _playbackCapture.StartRecording();
+                    StartEchoProtection();
                     _cableOutput.Play();
-                    _monitorOutput.Play();
                     _running = true;
                 }
                 catch
@@ -146,12 +154,9 @@ namespace VoiceDuck
         {
             lock (_sync)
             {
-                if (!_running || _trackEnded) return;
+                if (!_running) return;
                 _paused = !_paused;
-                _monitorGate.Paused = _paused;
-                _shareGate.Paused = _paused;
-                if (_paused) _monitorOutput.Pause();
-                else _monitorOutput.Play();
+                if (_playbackGate != null) _playbackGate.UserPaused = _paused;
             }
         }
 
@@ -160,8 +165,7 @@ namespace VoiceDuck
             lock (_sync)
             {
                 if (_microphoneGain != null) _microphoneGain.Gain = microphoneGain;
-                if (_monitorMusicGain != null) _monitorMusicGain.Gain = musicGain;
-                if (_shareMusicGain != null) _shareMusicGain.Gain = musicGain;
+                if (_playbackGain != null) _playbackGain.Gain = musicGain;
             }
         }
 
@@ -169,28 +173,16 @@ namespace VoiceDuck
         {
             lock (_sync)
             {
-                TimeSpan position = TimeSpan.Zero;
-                TimeSpan duration = TimeSpan.Zero;
-                try
-                {
-                    if (_monitorReader != null)
-                    {
-                        position = _monitorReader.CurrentTime;
-                        duration = _monitorReader.TotalTime;
-                    }
-                }
-                catch { }
                 return new MusicShareStatus
                 {
                     Running = _running,
                     Paused = _paused,
-                    TrackEnded = _trackEnded,
-                    TrackName = _trackName,
+                    RemoteAudioBlocked = _remoteAudioBlocked,
+                    SourceName = _sourceName,
                     LastError = _lastError,
                     MicrophonePeak = _microphoneMeter == null ? 0.0f : _microphoneMeter.Peak,
-                    MusicPeak = _musicMeter == null ? 0.0f : _musicMeter.Peak,
-                    Position = position,
-                    Duration = duration
+                    MusicPeak = _playbackMeter == null ? 0.0f : _playbackMeter.Peak,
+                    DelayMilliseconds = PlaybackDelayMilliseconds
                 };
             }
         }
@@ -205,53 +197,102 @@ namespace VoiceDuck
             Stop();
         }
 
-        private static MediaFoundationReader OpenReader(string path)
+        private static BufferedWaveProvider CreateCaptureBuffer(WaveFormat format, int milliseconds)
         {
-            var settings = new MediaFoundationReader.MediaFoundationReaderSettings
+            return new BufferedWaveProvider(format)
             {
-                RequestFloatOutput = true,
-                RepositionInRead = false,
-                SingleReaderObject = true
+                BufferDuration = TimeSpan.FromMilliseconds(milliseconds),
+                DiscardOnBufferOverflow = true,
+                ReadFully = true
             };
-            return new MediaFoundationReader(path, settings);
+        }
+
+        private void StartEchoProtection()
+        {
+            _echoProtectionStopRequested = false;
+            _echoProtectionThread = new Thread(EchoProtectionWorker);
+            _echoProtectionThread.Name = "VoiceDuck Echo Protection";
+            _echoProtectionThread.IsBackground = true;
+            _echoProtectionThread.Start();
+        }
+
+        private void EchoProtectionWorker()
+        {
+            while (!_echoProtectionStopRequested)
+            {
+                long now = DateTime.UtcNow.Ticks;
+                try
+                {
+                    CallAudioActivity activity = _callActivityProvider();
+                    if (activity != null &&
+                        !String.IsNullOrWhiteSpace(activity.ProcessName) &&
+                        activity.PeakDb >= RemoteSpeechThresholdDb)
+                    {
+                        long holdUntil = now + TimeSpan.FromMilliseconds(
+                            PlaybackDelayMilliseconds + EchoProtectionHoldMilliseconds).Ticks;
+                        Interlocked.Exchange(ref _remoteBlockUntilTicks, holdUntil);
+                    }
+                }
+                catch
+                {
+                    // Fail closed for one protection window: a detector failure must
+                    // never send the remote party's voice back into the call.
+                    long holdUntil = now + TimeSpan.FromMilliseconds(
+                        PlaybackDelayMilliseconds + EchoProtectionHoldMilliseconds).Ticks;
+                    Interlocked.Exchange(ref _remoteBlockUntilTicks, holdUntil);
+                }
+
+                bool blocked = now < Interlocked.Read(ref _remoteBlockUntilTicks);
+                _remoteAudioBlocked = blocked;
+                LiveAudioGateSampleProvider gate = _playbackGate;
+                if (gate != null) gate.RemoteAudioBlocked = blocked;
+                Thread.Sleep(25);
+            }
+
+            _remoteAudioBlocked = false;
+            LiveAudioGateSampleProvider finalGate = _playbackGate;
+            if (finalGate != null) finalGate.RemoteAudioBlocked = false;
         }
 
         private void MicrophoneDataAvailable(object sender, WaveInEventArgs eventArgs)
         {
+            AddCaptureData(_microphoneBuffer, eventArgs, "麦克风");
+        }
+
+        private void PlaybackDataAvailable(object sender, WaveInEventArgs eventArgs)
+        {
+            AddCaptureData(_playbackBuffer, eventArgs, "播放设备");
+        }
+
+        private void AddCaptureData(BufferedWaveProvider buffer, WaveInEventArgs eventArgs, string source)
+        {
             try
             {
-                BufferedWaveProvider buffer = _microphoneBuffer;
                 if (buffer != null && eventArgs.BytesRecorded > 0)
                     buffer.AddSamples(eventArgs.Buffer, 0, eventArgs.BytesRecorded);
             }
             catch (Exception exception)
             {
-                lock (_sync) _lastError = "麦克风缓冲失败：" + exception.Message;
+                lock (_sync) _lastError = source + "缓冲失败：" + exception.Message;
             }
         }
 
         private void MicrophoneRecordingStopped(object sender, StoppedEventArgs eventArgs)
         {
+            SetCaptureError("麦克风已停止：", eventArgs);
+        }
+
+        private void PlaybackRecordingStopped(object sender, StoppedEventArgs eventArgs)
+        {
+            SetCaptureError("播放设备监听已停止：", eventArgs);
+        }
+
+        private void SetCaptureError(string prefix, StoppedEventArgs eventArgs)
+        {
             if (eventArgs.Exception == null) return;
             lock (_sync)
             {
-                if (!_stopping) _lastError = "麦克风已停止：" + eventArgs.Exception.Message;
-            }
-        }
-
-        private void MonitorPlaybackStopped(object sender, StoppedEventArgs eventArgs)
-        {
-            lock (_sync)
-            {
-                if (_stopping) return;
-                if (eventArgs.Exception != null)
-                {
-                    _lastError = "本地音乐播放停止：" + eventArgs.Exception.Message;
-                    return;
-                }
-                _trackEnded = true;
-                _paused = true;
-                if (_shareGate != null) _shareGate.Paused = true;
+                if (!_stopping) _lastError = prefix + eventArgs.Exception.Message;
             }
         }
 
@@ -269,7 +310,11 @@ namespace VoiceDuck
             _stopping = true;
             _running = false;
             _paused = false;
-            _trackEnded = false;
+            _echoProtectionStopRequested = true;
+            Thread echoThread = _echoProtectionThread;
+            _echoProtectionThread = null;
+            if (echoThread != null && echoThread != Thread.CurrentThread)
+                echoThread.Join(1200);
 
             if (_microphoneCapture != null)
             {
@@ -277,10 +322,11 @@ namespace VoiceDuck
                 _microphoneCapture.RecordingStopped -= MicrophoneRecordingStopped;
                 try { _microphoneCapture.StopRecording(); } catch { }
             }
-            if (_monitorOutput != null)
+            if (_playbackCapture != null)
             {
-                _monitorOutput.PlaybackStopped -= MonitorPlaybackStopped;
-                try { _monitorOutput.Stop(); } catch { }
+                _playbackCapture.DataAvailable -= PlaybackDataAvailable;
+                _playbackCapture.RecordingStopped -= PlaybackRecordingStopped;
+                try { _playbackCapture.StopRecording(); } catch { }
             }
             if (_cableOutput != null)
             {
@@ -289,24 +335,22 @@ namespace VoiceDuck
             }
 
             DisposeAndClear(ref _microphoneCapture);
-            DisposeAndClear(ref _monitorOutput);
+            DisposeAndClear(ref _playbackCapture);
             DisposeAndClear(ref _cableOutput);
             DisposeAndClear(ref _microphoneResampler);
-            DisposeAndClear(ref _monitorResampler);
-            DisposeAndClear(ref _shareResampler);
-            DisposeAndClear(ref _monitorReader);
-            DisposeAndClear(ref _shareReader);
+            DisposeAndClear(ref _playbackResampler);
             DisposeAndClear(ref _microphoneDevice);
             DisposeAndClear(ref _monitorDevice);
             DisposeAndClear(ref _cableRenderDevice);
             _microphoneBuffer = null;
-            _monitorGate = null;
-            _shareGate = null;
+            _playbackBuffer = null;
+            _playbackGate = null;
             _microphoneGain = null;
-            _monitorMusicGain = null;
-            _shareMusicGain = null;
+            _playbackGain = null;
             _microphoneMeter = null;
-            _musicMeter = null;
+            _playbackMeter = null;
+            _remoteAudioBlocked = false;
+            Interlocked.Exchange(ref _remoteBlockUntilTicks, 0L);
         }
 
         private static void DisposeAndClear<T>(ref T value) where T : class, IDisposable
@@ -365,6 +409,65 @@ namespace VoiceDuck
             if (!_paused) return _source.Read(buffer, offset, count);
             Array.Clear(buffer, offset, count);
             return count;
+        }
+    }
+
+    internal sealed class InitialDelaySampleProvider : ISampleProvider
+    {
+        private readonly ISampleProvider _source;
+        private long _remainingSamples;
+
+        public InitialDelaySampleProvider(ISampleProvider source, int delayMilliseconds)
+        {
+            if (source == null) throw new ArgumentNullException("source");
+            _source = source;
+            int safeDelay = Math.Max(0, delayMilliseconds);
+            _remainingSamples = (long)source.WaveFormat.SampleRate *
+                                source.WaveFormat.Channels *
+                                safeDelay / 1000L;
+        }
+
+        public WaveFormat WaveFormat { get { return _source.WaveFormat; } }
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int silentSamples = (int)Math.Min((long)count, _remainingSamples);
+            if (silentSamples > 0)
+            {
+                Array.Clear(buffer, offset, silentSamples);
+                _remainingSamples -= silentSamples;
+            }
+            if (silentSamples == count) return count;
+            int read = _source.Read(buffer, offset + silentSamples, count - silentSamples);
+            return silentSamples + read;
+        }
+    }
+
+    internal sealed class LiveAudioGateSampleProvider : ISampleProvider
+    {
+        private readonly ISampleProvider _source;
+        private volatile bool _userPaused;
+        private volatile bool _remoteAudioBlocked;
+
+        public LiveAudioGateSampleProvider(ISampleProvider source)
+        {
+            if (source == null) throw new ArgumentNullException("source");
+            _source = source;
+        }
+
+        public WaveFormat WaveFormat { get { return _source.WaveFormat; } }
+        public bool UserPaused { get { return _userPaused; } set { _userPaused = value; } }
+        public bool RemoteAudioBlocked
+        {
+            get { return _remoteAudioBlocked; }
+            set { _remoteAudioBlocked = value; }
+        }
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int read = _source.Read(buffer, offset, count);
+            if (_userPaused || _remoteAudioBlocked) Array.Clear(buffer, offset, read);
+            return read;
         }
     }
 
