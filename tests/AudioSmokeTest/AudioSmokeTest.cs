@@ -10,6 +10,7 @@ namespace VoiceDuck
         private static void Main()
         {
             AudioEngineService service = null;
+            HearingProtectionService hearingProtection = null;
             try
             {
                 service = new AudioEngineService(AppSettings.CreateDefault());
@@ -52,6 +53,14 @@ namespace VoiceDuck
                     defaultMicrophoneController.GetDefaultEndpointId(DefaultMicrophoneRole.Multimedia));
                 Console.WriteLine("DEFAULT_MICROPHONE_COMMUNICATIONS=" +
                     defaultMicrophoneController.GetDefaultEndpointId(DefaultMicrophoneRole.Communications));
+                hearingProtection = new HearingProtectionService(AppSettings.CreateDefault());
+                hearingProtection.Start();
+                Thread.Sleep(150);
+                HearingProtectionStatus hearingStatus = hearingProtection.GetStatus();
+                Console.WriteLine("HEARING_PROTECTION_PROBE=" +
+                    (!String.IsNullOrWhiteSpace(hearingStatus.DeviceName)));
+                Console.WriteLine("HEARING_PROTECTION_DEVICE=" + hearingStatus.DeviceName);
+                Console.WriteLine("HEARING_PROTECTION_DEFAULT_ENABLED=" + hearingStatus.Enabled);
                 Console.WriteLine("AUDIO_RECOVERY_READY=" + AudioRecoveryUtility.IsAudioReady());
             }
             catch (Exception ex)
@@ -63,6 +72,7 @@ namespace VoiceDuck
             }
             finally
             {
+                if (hearingProtection != null) hearingProtection.Dispose();
                 if (service != null) service.Dispose();
             }
         }

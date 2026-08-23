@@ -84,6 +84,7 @@ namespace VoiceDuck
             TestDefaultMicrophoneSwitchAndRestore();
             TestPendingMicrophoneRestoreSurvivesRestart();
             TestFailedMicrophoneSwitchRollsBack();
+            TestHearingProtectionCalculations();
             TestShareSampleProviders();
             Console.WriteLine("PASS " + _passed + " core tests");
         }
@@ -274,7 +275,7 @@ namespace VoiceDuck
                 TargetApps = new List<string>()
             };
             oldSettings.Normalize();
-            Assert(oldSettings.SettingsVersion == 4,
+            Assert(oldSettings.SettingsVersion == 5,
                 "old settings must be migrated to the current schema");
             AssertNear(0.65f, oldSettings.ShareMicrophoneGain, 0.001f,
                 "upgrading from 1.0 must not silently mute the shared microphone");
@@ -282,6 +283,10 @@ namespace VoiceDuck
                 "upgrading from 1.0 must initialize the music mix level");
             Assert(oldSettings.ShareAutoSwitchMicrophone,
                 "existing users must receive automatic microphone switching by default");
+            Assert(!oldSettings.HearingProtectionEnabled &&
+                   Math.Abs(oldSettings.HearingProtectionMaxVolume - 0.70f) < 0.001f &&
+                   Math.Abs(oldSettings.HearingProtectionPeakLimitDb + 6.0f) < 0.001f,
+                "hearing protection migration must use a safe opt-in default and balanced limits");
 
             AppSettings current = AppSettings.CreateDefault();
             current.ShareMicrophoneGain = 0.0f;
@@ -305,7 +310,7 @@ namespace VoiceDuck
                 var serializer = new DataContractJsonSerializer(typeof(AppSettings));
                 var settings = (AppSettings)serializer.ReadObject(stream);
                 settings.Normalize();
-                Assert(settings.SettingsVersion == 4 && settings.TriggerApps.Count == 1,
+                Assert(settings.SettingsVersion == 5 && settings.TriggerApps.Count == 1,
                     "legacy local-file settings must load without affecting live capture");
             }
         }
@@ -389,6 +394,25 @@ namespace VoiceDuck
             {
                 if (Directory.Exists(folder)) Directory.Delete(folder, true);
             }
+        }
+
+        private static void TestHearingProtectionCalculations()
+        {
+            AssertNear(-6.0f,
+                HearingProtectionCore.CalculateTargetVolumeDb(-2.0f, 1.0f, -6.0f, -65.0f),
+                0.001f,
+                "a full-scale input peak must immediately request enough endpoint attenuation");
+            AssertNear(-2.0f,
+                HearingProtectionCore.CalculateTargetVolumeDb(-2.0f, 0.1f, -6.0f, -65.0f),
+                0.001f,
+                "quiet content must keep the user's protected base volume");
+            AssertNear(-12.0f,
+                HearingProtectionCore.CalculateTargetVolumeDb(-2.0f, 1.0f, -18.0f, -12.0f),
+                0.001f,
+                "endpoint attenuation must never be requested below the device minimum");
+            float recovered = HearingProtectionCore.RecoverToward(-18.0f, -6.0f, 25, 2200);
+            Assert(recovered > -18.0f && recovered < -6.0f,
+                "peak recovery must be gradual and must not overshoot the base volume");
         }
 
         private static FakeDefaultCaptureEndpointController CreateMicrophoneController()

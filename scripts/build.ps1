@@ -66,6 +66,7 @@ $testSources = @(
     (Join-Path $sourceDirectory 'AudioEndpoints.cs'),
     (Join-Path $sourceDirectory 'MusicShareAudioEngine.cs'),
     (Join-Path $sourceDirectory 'DefaultMicrophoneSwitcher.cs'),
+    (Join-Path $sourceDirectory 'HearingProtection.cs'),
     (Join-Path $sourceDirectory 'VoiceGate.cs'),
     (Join-Path $sourceDirectory 'DuckingCoordinator.cs'),
     (Join-Path $projectRoot 'tests\CoreTests\CoreTests.cs')
@@ -100,6 +101,7 @@ $smokeSources = @(
     (Join-Path $sourceDirectory 'CaptureDevices.cs'),
     (Join-Path $sourceDirectory 'AudioEndpoints.cs'),
     (Join-Path $sourceDirectory 'DefaultMicrophoneSwitcher.cs'),
+    (Join-Path $sourceDirectory 'HearingProtection.cs'),
     (Join-Path $sourceDirectory 'AudioRecovery.cs'),
     (Join-Path $sourceDirectory 'CoreAudio.cs'),
     (Join-Path $projectRoot 'tests\AudioSmokeTest\AudioSmokeTest.cs')

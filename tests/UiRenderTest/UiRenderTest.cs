@@ -12,7 +12,8 @@ namespace VoiceDuck
         [STAThread]
         private static void Main(string[] args)
         {
-            if (args.Length != 2) throw new ArgumentException("Expected main-window and music-share PNG paths.");
+            if (args.Length != 3)
+                throw new ArgumentException("Expected main-window, music-share, and hearing-protection PNG paths.");
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
@@ -55,16 +56,17 @@ namespace VoiceDuck
                     }
 
                     MethodInfo updateStopButton = typeof(MusicShareForm).GetMethod(
-                        "UpdateStopButtonAppearance",
+                        "UpdateShareToggleButtonAppearance",
                         BindingFlags.Instance | BindingFlags.NonPublic);
                     FieldInfo stopButtonField = typeof(MusicShareForm).GetField(
-                        "_stopButton",
+                        "_startButton",
                         BindingFlags.Instance | BindingFlags.NonPublic);
                     if (updateStopButton == null || stopButtonField == null)
                         throw new InvalidOperationException("Stop-sharing button state hook was not found.");
                     updateStopButton.Invoke(shareForm, new object[] { true });
                     Button stopButton = stopButtonField.GetValue(shareForm) as Button;
-                    if (stopButton == null || !stopButton.Enabled || stopButton.BackColor.R < 240 ||
+                    if (stopButton == null || !stopButton.Enabled || stopButton.Text != "停止分享" ||
+                        stopButton.BackColor.R < 240 ||
                         stopButton.BackColor.G > 70 || stopButton.BackColor.B > 90 ||
                         stopButton.ForeColor != Color.White || !stopButton.Font.Bold)
                         throw new InvalidOperationException("Active stop-sharing button is not visually prominent enough.");
@@ -78,11 +80,35 @@ namespace VoiceDuck
                     shareForm.Close();
                     Application.DoEvents();
                 }
+
+                using (var protectionService = new HearingProtectionService(settings))
+                using (var protectionForm = new HearingProtectionForm(settings, protectionService, delegate { }))
+                {
+                    protectionForm.ShowInTaskbar = false;
+                    protectionForm.StartPosition = FormStartPosition.Manual;
+                    protectionForm.Location = new Point(-2000, -2000);
+                    protectionForm.Show();
+                    for (int i = 0; i < 5; i++)
+                    {
+                        Application.DoEvents();
+                        Thread.Sleep(50);
+                    }
+
+                    using (var bitmap = new Bitmap(protectionForm.Width, protectionForm.Height))
+                    {
+                        protectionForm.DrawToBitmap(bitmap, new Rectangle(Point.Empty, protectionForm.Size));
+                        bitmap.Save(args[2], ImageFormat.Png);
+                    }
+                    protectionForm.PrepareForOwnerShutdown();
+                    protectionForm.Close();
+                    Application.DoEvents();
+                }
                 form.Shutdown();
                 Application.DoEvents();
             }
             Console.WriteLine("UI_RENDERED=" + args[0]);
             Console.WriteLine("MUSIC_SHARE_UI_RENDERED=" + args[1]);
+            Console.WriteLine("HEARING_PROTECTION_UI_RENDERED=" + args[2]);
         }
     }
 }

@@ -26,6 +26,7 @@ namespace VoiceDuck
         private readonly AppSettings _settings;
         private readonly AudioEngineService _service;
         private readonly MusicShareAudioEngine _musicShareService;
+        private readonly HearingProtectionService _hearingProtectionService;
         private readonly IDefaultMicrophoneSwitcher _microphoneSwitcher;
         private readonly bool _ownsMicrophoneSwitcher;
         private readonly bool _startHidden;
@@ -35,7 +36,9 @@ namespace VoiceDuck
         private Label _statusDetail;
         private Button _toggleButton;
         private Button _musicShareButton;
+        private Button _hearingProtectionButton;
         private MusicShareForm _musicShareForm;
+        private HearingProtectionForm _hearingProtectionForm;
         private CheckedListBox _triggerList;
         private CheckedListBox _targetList;
         private CheckBox _duckAllCheck;
@@ -74,6 +77,7 @@ namespace VoiceDuck
             _startHidden = startHidden;
             _service = new AudioEngineService(settings);
             _musicShareService = new MusicShareAudioEngine(_service.GetCallActivity);
+            _hearingProtectionService = new HearingProtectionService(settings);
             if (microphoneSwitcher == null)
             {
                 _microphoneSwitcher = new DefaultMicrophoneSwitcher(
@@ -113,6 +117,7 @@ namespace VoiceDuck
             _targetList.ItemCheck += TargetListItemCheck;
 
             _service.Start();
+            _hearingProtectionService.Start();
             _service.RequestRefresh();
 
             _uiTimer = new Timer();
@@ -147,7 +152,15 @@ namespace VoiceDuck
                 {
                     _microphoneSwitcher.Restore();
                 }
+                if (_hearingProtectionForm != null)
+                {
+                    _hearingProtectionForm.PrepareForOwnerShutdown();
+                    _hearingProtectionForm.Close();
+                    _hearingProtectionForm.Dispose();
+                    _hearingProtectionForm = null;
+                }
                 _musicShareService.Dispose();
+                _hearingProtectionService.Dispose();
                 _service.Dispose();
                 if (_ownsMicrophoneSwitcher)
                 {
@@ -182,19 +195,24 @@ namespace VoiceDuck
             subtitle.SetBounds(90, 51, 300, 24);
             header.Controls.Add(subtitle);
 
+            _hearingProtectionButton = CreateButton("音量保护", Color.FromArgb(49, 61, 80), TextColor);
+            _hearingProtectionButton.SetBounds(402, 28, 110, 36);
+            _hearingProtectionButton.Click += delegate { ShowHearingProtection(); };
+            header.Controls.Add(_hearingProtectionButton);
+
             _musicShareButton = CreateButton("通话音乐分享", Color.FromArgb(49, 61, 80), TextColor);
-            _musicShareButton.SetBounds(464, 28, 116, 36);
+            _musicShareButton.SetBounds(520, 28, 120, 36);
             _musicShareButton.Click += delegate { ShowMusicShare(); };
             header.Controls.Add(_musicShareButton);
 
             _statusBadge = CreateLabel("已暂停", 9.5f, FontStyle.Bold, SubtleColor);
             _statusBadge.TextAlign = ContentAlignment.MiddleCenter;
             _statusBadge.BackColor = Color.FromArgb(38, 45, 57);
-            _statusBadge.SetBounds(594, 28, 90, 36);
+            _statusBadge.SetBounds(650, 28, 76, 36);
             header.Controls.Add(_statusBadge);
 
             _toggleButton = CreateButton("开始自动闪避", AccentColor, Color.White);
-            _toggleButton.SetBounds(698, 23, 205, 46);
+            _toggleButton.SetBounds(738, 23, 165, 46);
             _toggleButton.Click += delegate
             {
                 _settings.Enabled = !_settings.Enabled;
@@ -310,6 +328,7 @@ namespace VoiceDuck
                 UpdateToggleAppearance();
             });
             menu.Items.Add("通话音乐分享", null, delegate { ShowMusicShare(); });
+            menu.Items.Add("耳机音量保护", null, delegate { ShowHearingProtection(); });
             menu.Items.Add("退出并恢复音量/麦克风", null, delegate { Shutdown(); });
 
             _trayIcon = new NotifyIcon();
@@ -347,8 +366,26 @@ namespace VoiceDuck
         {
             EngineStatus status = _service.GetStatus();
             MusicShareStatus shareStatus = _musicShareService.GetStatus();
+            HearingProtectionStatus protectionStatus = _hearingProtectionService.GetStatus();
             _musicShareButton.Text = shareStatus.Running ? "音乐分享 · 开启" : "通话音乐分享";
             _musicShareButton.ForeColor = shareStatus.Running ? GreenColor : TextColor;
+            if (!String.IsNullOrWhiteSpace(protectionStatus.LastError))
+            {
+                _hearingProtectionButton.Text = "音量保护 · 错误";
+                _hearingProtectionButton.ForeColor = OrangeColor;
+            }
+            else if (protectionStatus.Enabled)
+            {
+                _hearingProtectionButton.Text = protectionStatus.Attenuating
+                    ? "音量保护 · 压低中"
+                    : "音量保护 · " + _settings.HearingProtectionMaxVolume.ToString("0%");
+                _hearingProtectionButton.ForeColor = protectionStatus.Attenuating ? OrangeColor : GreenColor;
+            }
+            else
+            {
+                _hearingProtectionButton.Text = "音量保护";
+                _hearingProtectionButton.ForeColor = TextColor;
+            }
             if (!String.IsNullOrEmpty(status.LastError))
             {
                 SetStatus("音频错误", OrangeColor, status.LastError);
@@ -544,6 +581,7 @@ namespace VoiceDuck
             _settings.Normalize();
             try { SettingsStore.Save(_settings); } catch { }
             _service.UpdateSettings(_settings);
+            _hearingProtectionService.UpdateSettings(_settings);
         }
 
         private void UpdateToggleAppearance()
@@ -586,6 +624,18 @@ namespace VoiceDuck
                     ApplySettings);
             if (!_musicShareForm.Visible) _musicShareForm.Show(this);
             _musicShareForm.Activate();
+        }
+
+        private void ShowHearingProtection()
+        {
+            ShowMainWindow();
+            if (_hearingProtectionForm == null || _hearingProtectionForm.IsDisposed)
+                _hearingProtectionForm = new HearingProtectionForm(
+                    _settings,
+                    _hearingProtectionService,
+                    ApplySettings);
+            if (!_hearingProtectionForm.Visible) _hearingProtectionForm.Show(this);
+            _hearingProtectionForm.Activate();
         }
 
         private void MainFormClosing(object sender, FormClosingEventArgs e)
