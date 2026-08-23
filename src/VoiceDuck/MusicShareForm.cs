@@ -16,6 +16,10 @@ namespace VoiceDuck
         private static readonly Color AccentColor = Color.FromArgb(91, 140, 255);
         private static readonly Color GreenColor = Color.FromArgb(62, 207, 142);
         private static readonly Color OrangeColor = Color.FromArgb(255, 176, 84);
+        private static readonly Color StopActiveColor = Color.FromArgb(255, 45, 69);
+        private static readonly Color StopHoverColor = Color.FromArgb(255, 82, 101);
+        private static readonly Color StopPressedColor = Color.FromArgb(199, 25, 51);
+        private static readonly Color StopInactiveColor = Color.FromArgb(91, 47, 55);
 
         private readonly AppSettings _settings;
         private readonly MusicShareAudioEngine _engine;
@@ -169,10 +173,12 @@ namespace VoiceDuck
             _pauseButton.SetBounds(188, 605, 132, 42);
             _pauseButton.Click += delegate { _engine.TogglePause(); };
             Controls.Add(_pauseButton);
-            _stopButton = CreateButton("停止分享", Color.FromArgb(91, 47, 55), Color.FromArgb(255, 210, 216));
+            _stopButton = CreateButton("停止分享", StopInactiveColor, Color.FromArgb(255, 210, 216));
             _stopButton.SetBounds(330, 605, 132, 42);
+            _stopButton.Font = new Font("Segoe UI", 9.2f, FontStyle.Bold, GraphicsUnit.Point);
             _stopButton.Click += delegate { _engine.Stop(); };
             Controls.Add(_stopButton);
+            UpdateStopButtonAppearance(false);
 
             _shareStatus = CreateLabel("尚未开始分享", 9.0f, FontStyle.Bold, SubtleColor);
             _shareStatus.SetBounds(482, 582, 280, 26);
@@ -407,7 +413,19 @@ namespace VoiceDuck
             _startButton.Enabled = !status.Running;
             _pauseButton.Enabled = status.Running;
             _pauseButton.Text = status.Paused ? "继续播放声" : "暂停播放声";
-            _stopButton.Enabled = status.Running;
+            UpdateStopButtonAppearance(status.Running);
+        }
+
+        private void UpdateStopButtonAppearance(bool running)
+        {
+            _stopButton.Enabled = running;
+            _stopButton.UseVisualStyleBackColor = false;
+            _stopButton.BackColor = running ? StopActiveColor : StopInactiveColor;
+            _stopButton.ForeColor = running ? Color.White : Color.FromArgb(255, 210, 216);
+            _stopButton.FlatAppearance.BorderSize = running ? 1 : 0;
+            _stopButton.FlatAppearance.BorderColor = running ? Color.FromArgb(255, 119, 132) : StopInactiveColor;
+            _stopButton.FlatAppearance.MouseOverBackColor = running ? StopHoverColor : StopInactiveColor;
+            _stopButton.FlatAppearance.MouseDownBackColor = running ? StopPressedColor : StopInactiveColor;
         }
 
         private void OpenSoundSettings(object sender, EventArgs eventArgs)

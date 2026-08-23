@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -47,6 +48,21 @@ namespace VoiceDuck
                         Application.DoEvents();
                         Thread.Sleep(75);
                     }
+
+                    MethodInfo updateStopButton = typeof(MusicShareForm).GetMethod(
+                        "UpdateStopButtonAppearance",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                    FieldInfo stopButtonField = typeof(MusicShareForm).GetField(
+                        "_stopButton",
+                        BindingFlags.Instance | BindingFlags.NonPublic);
+                    if (updateStopButton == null || stopButtonField == null)
+                        throw new InvalidOperationException("Stop-sharing button state hook was not found.");
+                    updateStopButton.Invoke(shareForm, new object[] { true });
+                    Button stopButton = stopButtonField.GetValue(shareForm) as Button;
+                    if (stopButton == null || !stopButton.Enabled || stopButton.BackColor.R < 240 ||
+                        stopButton.BackColor.G > 70 || stopButton.BackColor.B > 90 ||
+                        stopButton.ForeColor != Color.White || !stopButton.Font.Bold)
+                        throw new InvalidOperationException("Active stop-sharing button is not visually prominent enough.");
 
                     using (var bitmap = new Bitmap(shareForm.Width, shareForm.Height))
                     {
