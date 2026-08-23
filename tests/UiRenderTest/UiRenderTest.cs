@@ -34,30 +34,30 @@ namespace VoiceDuck
                     form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
                     bitmap.Save(args[0], ImageFormat.Png);
                 }
-                form.Shutdown();
-                Application.DoEvents();
-            }
 
-            using (var service = new MusicShareAudioEngine())
-            using (var form = new MusicShareForm(settings, service, delegate { }))
-            {
-                form.ShowInTaskbar = false;
-                form.StartPosition = FormStartPosition.Manual;
-                form.Location = new Point(-2000, -2000);
-                form.Show();
-                for (int i = 0; i < 8; i++)
+                using (var service = new MusicShareAudioEngine())
+                using (var shareForm = new MusicShareForm(settings, service, delegate { }))
                 {
+                    shareForm.ShowInTaskbar = false;
+                    shareForm.StartPosition = FormStartPosition.Manual;
+                    shareForm.Location = new Point(-2000, -2000);
+                    shareForm.Show();
+                    for (int i = 0; i < 8; i++)
+                    {
+                        Application.DoEvents();
+                        Thread.Sleep(75);
+                    }
+
+                    using (var bitmap = new Bitmap(shareForm.Width, shareForm.Height))
+                    {
+                        shareForm.DrawToBitmap(bitmap, new Rectangle(Point.Empty, shareForm.Size));
+                        bitmap.Save(args[1], ImageFormat.Png);
+                    }
+                    shareForm.PrepareForOwnerShutdown();
+                    shareForm.Close();
                     Application.DoEvents();
-                    Thread.Sleep(75);
                 }
-
-                using (var bitmap = new Bitmap(form.Width, form.Height))
-                {
-                    form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
-                    bitmap.Save(args[1], ImageFormat.Png);
-                }
-                form.PrepareForOwnerShutdown();
-                form.Close();
+                form.Shutdown();
                 Application.DoEvents();
             }
             Console.WriteLine("UI_RENDERED=" + args[0]);

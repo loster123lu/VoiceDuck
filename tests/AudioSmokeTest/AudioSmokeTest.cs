@@ -1,27 +1,29 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace VoiceDuck
 {
     internal static class AudioSmokeTest
     {
+        [STAThread]
         private static void Main()
         {
+            AudioEngineService service = null;
             try
             {
-                using (var graph = new AudioSessionGraph())
+                service = new AudioEngineService(AppSettings.CreateDefault());
+                service.Start();
+                Thread.Sleep(600);
+                List<AudioSessionInfo> sessions = service.GetSessions();
+                Console.WriteLine("AUDIO_SESSIONS=" + sessions.Count);
+                foreach (AudioSessionInfo session in sessions)
                 {
-                    graph.Refresh();
-                    List<AudioSessionInfo> sessions = graph.GetInfos();
-                    Console.WriteLine("AUDIO_SESSIONS=" + sessions.Count);
-                    foreach (AudioSessionInfo session in sessions)
-                    {
-                        Console.WriteLine(
-                            "SESSION=" + session.ProcessName +
-                            " PID=" + session.ProcessId +
-                            " VOLUME=" + session.Volume.ToString("0.000") +
-                            " PEAK_DB=" + session.PeakDb.ToString("0.0"));
-                    }
+                    Console.WriteLine(
+                        "SESSION=" + session.ProcessName +
+                        " PID=" + session.ProcessId +
+                        " VOLUME=" + session.Volume.ToString("0.000") +
+                        " PEAK_DB=" + session.PeakDb.ToString("0.0"));
                 }
 
                 List<CaptureEndpointInfo> captureEndpoints = CaptureDeviceInspector.GetCaptureEndpoints();
@@ -49,6 +51,10 @@ namespace VoiceDuck
                 Console.Error.WriteLine("ERROR_HRESULT=0x" + ex.HResult.ToString("X8"));
                 try { Console.Error.WriteLine("ERROR_MESSAGE=" + ex.Message); } catch { }
                 Environment.ExitCode = 2;
+            }
+            finally
+            {
+                if (service != null) service.Dispose();
             }
         }
     }

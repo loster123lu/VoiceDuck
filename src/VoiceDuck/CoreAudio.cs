@@ -3,15 +3,15 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
+using NAudio.CoreAudioApi;
 
 namespace VoiceDuck
 {
     internal sealed class AudioSessionHandle : IDuckableSession, IDisposable
     {
-        private object _sessionObject;
-        private IAudioSessionControl2 _control;
-        private ISimpleAudioVolume _volume;
-        private IAudioMeterInformation _meter;
+        private AudioSessionControl _control;
+        private SimpleAudioVolume _volume;
+        private AudioMeterInformation _meter;
 
         public string Id { get; private set; }
         public int ProcessId { get; private set; }
@@ -20,56 +20,45 @@ namespace VoiceDuck
         public string DeviceId { get; private set; }
         public bool IsSystemSounds { get; private set; }
 
-        public AudioSessionHandle(object sessionObject, string deviceId, int fallbackIndex)
+        public AudioSessionHandle(AudioSessionControl control, string deviceId, int fallbackIndex)
         {
-            _sessionObject = sessionObject;
-            _control = (IAudioSessionControl2)sessionObject;
-            _volume = (ISimpleAudioVolume)sessionObject;
-            _meter = (IAudioMeterInformation)sessionObject;
+            if (control == null) throw new ArgumentNullException("control");
+            _control = control;
+            _volume = control.SimpleAudioVolume;
+            _meter = control.AudioMeterInformation;
             DeviceId = deviceId ?? String.Empty;
 
-            uint processId;
-            Marshal.ThrowExceptionForHR(_control.GetProcessId(out processId));
-            ProcessId = unchecked((int)processId);
+            ProcessId = unchecked((int)_control.GetProcessID);
             ProcessName = GetProcessName(ProcessId);
 
-            string displayName;
-            if (_control.GetDisplayName(out displayName) >= 0 && !String.IsNullOrWhiteSpace(displayName))
+            string displayName = _control.DisplayName;
+            if (!String.IsNullOrWhiteSpace(displayName))
                 DisplayName = displayName.Trim();
             else
                 DisplayName = ProcessName.Length > 0 ? ProcessName + ".exe" : "未知音频会话";
 
-            IsSystemSounds = _control.IsSystemSoundsSession() == 0;
+            IsSystemSounds = _control.IsSystemSoundsSession;
 
-            string instanceId;
-            if (_control.GetSessionInstanceIdentifier(out instanceId) < 0 || String.IsNullOrWhiteSpace(instanceId))
-            {
-                string sessionId;
-                _control.GetSessionIdentifier(out sessionId);
-                instanceId = (sessionId ?? String.Empty) + "|" + ProcessId + "|" + fallbackIndex;
-            }
+            string instanceId = _control.GetSessionInstanceIdentifier;
+            if (String.IsNullOrWhiteSpace(instanceId))
+                instanceId = (_control.GetSessionIdentifier ?? String.Empty) + "|" + ProcessId + "|" + fallbackIndex;
             Id = DeviceId + "|" + instanceId;
         }
 
         public float ReadPeak()
         {
-            float value;
-            Marshal.ThrowExceptionForHR(_meter.GetPeakValue(out value));
-            return value;
+            return _meter.MasterPeakValue;
         }
 
         public float ReadVolume()
         {
-            float value;
-            Marshal.ThrowExceptionForHR(_volume.GetMasterVolume(out value));
-            return value;
+            return _volume.Volume;
         }
 
         public void WriteVolume(float volume)
         {
             volume = Math.Max(0.0f, Math.Min(1.0f, volume));
-            Guid context = AudioSessionGraph.EventContext;
-            Marshal.ThrowExceptionForHR(_volume.SetMasterVolume(volume, ref context));
+            _volume.Volume = volume;
         }
 
         public AudioSessionInfo ToInfo()
@@ -93,11 +82,17 @@ namespace VoiceDuck
 
         public void Dispose()
         {
-            _control = null;
-            _volume = null;
             _meter = null;
-            ReleaseComObject(_sessionObject);
-            _sessionObject = null;
+            if (_volume != null)
+            {
+                try { _volume.Dispose(); } catch { }
+                _volume = null;
+            }
+            if (_control != null)
+            {
+                try { _control.Dispose(); } catch { }
+                _control = null;
+            }
         }
 
         private static string GetProcessName(int processId)
@@ -121,24 +116,17 @@ namespace VoiceDuck
             return "…" + value.Substring(value.Length - 21);
         }
 
-        private static void ReleaseComObject(object value)
-        {
-            if (value == null || !Marshal.IsComObject(value)) return;
-            try { Marshal.FinalReleaseComObject(value); } catch { }
-        }
     }
 
     internal sealed class AudioSessionGraph : IDisposable
     {
-        public static readonly Guid EventContext = new Guid("A4748F16-C27C-4B46-8532-B4D7BA7E40B3");
-
-        private IMMDeviceEnumerator _deviceEnumerator;
+        private MMDeviceEnumerator _deviceEnumerator;
         private readonly Dictionary<string, AudioSessionHandle> _sessions =
             new Dictionary<string, AudioSessionHandle>(StringComparer.OrdinalIgnoreCase);
 
         public AudioSessionGraph()
         {
-            _deviceEnumerator = (IMMDeviceEnumerator)(object)new MMDeviceEnumeratorComObject();
+            _deviceEnumerator = new MMDeviceEnumerator();
         }
 
         public IList<IDuckableSession> Sessions
@@ -153,22 +141,14 @@ namespace VoiceDuck
 
         public void Refresh()
         {
-            IMMDeviceCollection devices = null;
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            try
+            MMDeviceCollection devices = _deviceEnumerator.EnumerateAudioEndPoints(
+                DataFlow.Render,
+                DeviceState.Active);
+            for (int deviceIndex = 0; deviceIndex < devices.Count; deviceIndex++)
             {
-                Marshal.ThrowExceptionForHR(_deviceEnumerator.EnumAudioEndpoints(
-                    EDataFlow.Render,
-                    DeviceStateMask.Active,
-                    out devices));
-                uint deviceCount;
-                Marshal.ThrowExceptionForHR(devices.GetCount(out deviceCount));
-                for (uint deviceIndex = 0; deviceIndex < deviceCount; deviceIndex++)
-                    ReadDevice(devices, deviceIndex, seen);
-            }
-            finally
-            {
-                ReleaseComObject(devices);
+                using (MMDevice device = devices[deviceIndex])
+                    ReadDevice(device, seen);
             }
 
             var stale = new List<string>();
@@ -193,40 +173,30 @@ namespace VoiceDuck
         {
             foreach (AudioSessionHandle session in _sessions.Values) session.Dispose();
             _sessions.Clear();
-            ReleaseComObject(_deviceEnumerator);
-            _deviceEnumerator = null;
+            if (_deviceEnumerator != null)
+            {
+                try { _deviceEnumerator.Dispose(); } catch { }
+                _deviceEnumerator = null;
+            }
         }
 
-        private void ReadDevice(IMMDeviceCollection devices, uint deviceIndex, HashSet<string> seen)
+        private void ReadDevice(MMDevice device, HashSet<string> seen)
         {
-            IMMDevice device = null;
-            object managerObject = null;
-            IAudioSessionEnumerator sessionEnumerator = null;
+            AudioSessionManager manager = null;
             try
             {
-                Marshal.ThrowExceptionForHR(devices.Item(deviceIndex, out device));
-                string deviceId;
-                Marshal.ThrowExceptionForHR(device.GetId(out deviceId));
-
-                Guid managerGuid = typeof(IAudioSessionManager2).GUID;
-                Marshal.ThrowExceptionForHR(device.Activate(
-                    ref managerGuid,
-                    ClsCtx.All,
-                    IntPtr.Zero,
-                    out managerObject));
-                var manager = (IAudioSessionManager2)managerObject;
-                Marshal.ThrowExceptionForHR(manager.GetSessionEnumerator(out sessionEnumerator));
-
-                int sessionCount;
-                Marshal.ThrowExceptionForHR(sessionEnumerator.GetCount(out sessionCount));
-                for (int sessionIndex = 0; sessionIndex < sessionCount; sessionIndex++)
+                string deviceId = device.ID;
+                manager = device.AudioSessionManager;
+                manager.RefreshSessions();
+                SessionCollection sessions = manager.Sessions;
+                for (int sessionIndex = 0; sessionIndex < sessions.Count; sessionIndex++)
                 {
-                    IAudioSessionControl sessionControl = null;
+                    AudioSessionControl sessionControl = null;
                     AudioSessionHandle candidate = null;
                     try
                     {
-                        if (sessionEnumerator.GetSession(sessionIndex, out sessionControl) < 0 || sessionControl == null)
-                            continue;
+                        sessionControl = sessions[sessionIndex];
+                        if (sessionControl == null) continue;
                         candidate = new AudioSessionHandle(sessionControl, deviceId, sessionIndex);
                         sessionControl = null;
                         if (String.IsNullOrEmpty(candidate.ProcessName) && !candidate.IsSystemSounds)
@@ -250,22 +220,20 @@ namespace VoiceDuck
                     finally
                     {
                         if (candidate != null) candidate.Dispose();
-                        ReleaseComObject(sessionControl);
+                        if (sessionControl != null)
+                        {
+                            try { sessionControl.Dispose(); } catch { }
+                        }
                     }
                 }
             }
             finally
             {
-                ReleaseComObject(sessionEnumerator);
-                ReleaseComObject(managerObject);
-                ReleaseComObject(device);
+                if (manager != null)
+                {
+                    try { manager.Dispose(); } catch { }
+                }
             }
-        }
-
-        private static void ReleaseComObject(object value)
-        {
-            if (value == null || !Marshal.IsComObject(value)) return;
-            try { Marshal.FinalReleaseComObject(value); } catch { }
         }
     }
 
@@ -480,140 +448,4 @@ namespace VoiceDuck
         All = Active | Disabled | NotPresent | Unplugged
     }
 
-    [Flags]
-    internal enum ClsCtx : uint
-    {
-        InprocServer = 0x1,
-        InprocHandler = 0x2,
-        LocalServer = 0x4,
-        RemoteServer = 0x10,
-        All = InprocServer | InprocHandler | LocalServer | RemoteServer
-    }
-
-    internal enum AudioSessionState
-    {
-        Inactive = 0,
-        Active = 1,
-        Expired = 2
-    }
-
-    [ComImport]
-    [Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
-    internal sealed class MMDeviceEnumeratorComObject
-    {
-    }
-
-    [ComImport]
-    [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    internal interface IMMDeviceEnumerator
-    {
-        [PreserveSig] int EnumAudioEndpoints(EDataFlow dataFlow, DeviceStateMask stateMask, out IMMDeviceCollection devices);
-        [PreserveSig] int GetDefaultAudioEndpoint(EDataFlow dataFlow, int role, out IMMDevice endpoint);
-        [PreserveSig] int GetDevice([MarshalAs(UnmanagedType.LPWStr)] string id, out IMMDevice device);
-        [PreserveSig] int RegisterEndpointNotificationCallback(IntPtr client);
-        [PreserveSig] int UnregisterEndpointNotificationCallback(IntPtr client);
-    }
-
-    [ComImport]
-    [Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    internal interface IMMDeviceCollection
-    {
-        [PreserveSig] int GetCount(out uint count);
-        [PreserveSig] int Item(uint deviceNumber, out IMMDevice device);
-    }
-
-    [ComImport]
-    [Guid("D666063F-1587-4E43-81F1-B948E807363F")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    internal interface IMMDevice
-    {
-        [PreserveSig] int Activate(ref Guid iid, ClsCtx clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object instance);
-        [PreserveSig] int OpenPropertyStore(int access, out IPropertyStore properties);
-        [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
-        [PreserveSig] int GetState(out DeviceStateMask state);
-    }
-
-    [ComImport]
-    [Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    internal interface IAudioSessionManager2
-    {
-        [PreserveSig] int GetAudioSessionControl(ref Guid sessionGuid, uint streamFlags, out IAudioSessionControl sessionControl);
-        [PreserveSig] int GetSimpleAudioVolume(ref Guid sessionGuid, uint streamFlags, out ISimpleAudioVolume audioVolume);
-        [PreserveSig] int GetSessionEnumerator(out IAudioSessionEnumerator sessionEnumerator);
-        [PreserveSig] int RegisterSessionNotification(IntPtr sessionNotification);
-        [PreserveSig] int UnregisterSessionNotification(IntPtr sessionNotification);
-        [PreserveSig] int RegisterDuckNotification([MarshalAs(UnmanagedType.LPWStr)] string sessionId, IntPtr duckNotification);
-        [PreserveSig] int UnregisterDuckNotification(IntPtr duckNotification);
-    }
-
-    [ComImport]
-    [Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    internal interface IAudioSessionEnumerator
-    {
-        [PreserveSig] int GetCount(out int sessionCount);
-        [PreserveSig] int GetSession(int sessionCount, out IAudioSessionControl sessionControl);
-    }
-
-    [ComImport]
-    [Guid("F4B1A599-7266-4319-A8CA-E70ACB11E8CD")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    internal interface IAudioSessionControl
-    {
-        [PreserveSig] int GetState(out AudioSessionState state);
-        [PreserveSig] int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string displayName);
-        [PreserveSig] int SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string displayName, ref Guid eventContext);
-        [PreserveSig] int GetIconPath([MarshalAs(UnmanagedType.LPWStr)] out string iconPath);
-        [PreserveSig] int SetIconPath([MarshalAs(UnmanagedType.LPWStr)] string iconPath, ref Guid eventContext);
-        [PreserveSig] int GetGroupingParam(out Guid groupingId);
-        [PreserveSig] int SetGroupingParam(ref Guid groupingId, ref Guid eventContext);
-        [PreserveSig] int RegisterAudioSessionNotification(IntPtr client);
-        [PreserveSig] int UnregisterAudioSessionNotification(IntPtr client);
-    }
-
-    [ComImport]
-    [Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    internal interface IAudioSessionControl2
-    {
-        [PreserveSig] int GetState(out AudioSessionState state);
-        [PreserveSig] int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string displayName);
-        [PreserveSig] int SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string displayName, ref Guid eventContext);
-        [PreserveSig] int GetIconPath([MarshalAs(UnmanagedType.LPWStr)] out string iconPath);
-        [PreserveSig] int SetIconPath([MarshalAs(UnmanagedType.LPWStr)] string iconPath, ref Guid eventContext);
-        [PreserveSig] int GetGroupingParam(out Guid groupingId);
-        [PreserveSig] int SetGroupingParam(ref Guid groupingId, ref Guid eventContext);
-        [PreserveSig] int RegisterAudioSessionNotification(IntPtr client);
-        [PreserveSig] int UnregisterAudioSessionNotification(IntPtr client);
-        [PreserveSig] int GetSessionIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string sessionId);
-        [PreserveSig] int GetSessionInstanceIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string sessionInstanceId);
-        [PreserveSig] int GetProcessId(out uint processId);
-        [PreserveSig] int IsSystemSoundsSession();
-        [PreserveSig] int SetDuckingPreference([MarshalAs(UnmanagedType.Bool)] bool optOut);
-    }
-
-    [ComImport]
-    [Guid("87CE5498-68D6-44E5-9215-6DA47EF883D8")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    internal interface ISimpleAudioVolume
-    {
-        [PreserveSig] int SetMasterVolume(float level, ref Guid eventContext);
-        [PreserveSig] int GetMasterVolume(out float level);
-        [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, ref Guid eventContext);
-        [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute);
-    }
-
-    [ComImport]
-    [Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    internal interface IAudioMeterInformation
-    {
-        [PreserveSig] int GetPeakValue(out float peak);
-        [PreserveSig] int GetMeteringChannelCount(out int channelCount);
-        [PreserveSig] int GetChannelsPeakValues(int channelCount, [Out, MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 0)] float[] peakValues);
-        [PreserveSig] int QueryHardwareSupport(out int hardwareSupportMask);
-    }
 }
