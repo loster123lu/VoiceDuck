@@ -43,7 +43,6 @@ namespace VoiceDuck
         private Button _startButton;
         private Button _pauseButton;
         private CheckBox _autoSwitchMicrophoneCheck;
-        private CheckBox _routingCheck;
         private bool _updating;
         private bool _driverActionRunning;
         private bool _ownerShuttingDown;
@@ -61,8 +60,8 @@ namespace VoiceDuck
             _driverInstaller = new VirtualAudioInstaller();
 
             Text = "VoiceDuck · 通话音乐分享";
-            ClientSize = new Size(790, 700);
-            MinimumSize = new Size(806, 739);
+            ClientSize = new Size(790, 630);
+            MinimumSize = new Size(806, 669);
             MaximumSize = MinimumSize;
             StartPosition = FormStartPosition.CenterParent;
             BackColor = WindowColor;
@@ -105,7 +104,7 @@ namespace VoiceDuck
             subtitle.SetBounds(26, 55, 730, 24);
             Controls.Add(subtitle);
 
-            Panel driverCard = CreateCard(24, 88, 742, 118);
+            Panel driverCard = CreateCard(24, 88, 742, 104);
             Controls.Add(driverCard);
             Label driverTitle = CreateLabel("① 虚拟麦克风", 11.5f, FontStyle.Bold, TextColor);
             driverTitle.SetBounds(16, 12, 180, 25);
@@ -125,11 +124,7 @@ namespace VoiceDuck
             _recoverButton.SetBounds(640, 18, 82, 36);
             _recoverButton.Click += delegate { BeginAudioRecovery(); };
             driverCard.Controls.Add(_recoverButton);
-            Label driverNote = CreateLabel("官方签名驱动 · 安装后不改系统默认设备 · 不会自动重启", 8.4f, FontStyle.Regular, SubtleColor);
-            driverNote.SetBounds(428, 66, 292, 36);
-            driverCard.Controls.Add(driverNote);
-
-            Panel routeCard = CreateCard(24, 218, 742, 210);
+            Panel routeCard = CreateCard(24, 204, 742, 154);
             Controls.Add(routeCard);
             Label routeTitle = CreateLabel("② 选择麦克风和正在播放的设备", 11.5f, FontStyle.Bold, TextColor);
             routeTitle.SetBounds(16, 12, 300, 25);
@@ -142,26 +137,19 @@ namespace VoiceDuck
             _monitorBox = CreateComboBox();
             _monitorBox.SetBounds(142, 80, 570, 30);
             routeCard.Controls.Add(_monitorBox);
-            AddFieldLabel(routeCard, "分享来源", 18, 120);
-            Label liveSource = CreateLabel("实时监听上面的设备（无需选择 MP3 或其他文件）", 9.0f, FontStyle.Bold, GreenColor);
-            liveSource.SetBounds(142, 117, 570, 24);
-            routeCard.Controls.Add(liveSource);
-            Label echoNote = CreateLabel("对方讲话时自动暂停转发设备声；你的麦克风不受影响", 8.2f, FontStyle.Regular, SubtleColor);
-            echoNote.SetBounds(142, 143, 570, 22);
-            routeCard.Controls.Add(echoNote);
             Button refreshButton = CreateButton("刷新设备", Color.FromArgb(48, 60, 77), TextColor);
-            refreshButton.SetBounds(18, 166, 110, 30);
+            refreshButton.SetBounds(18, 116, 110, 30);
             refreshButton.Click += delegate { RefreshDevices(); };
             routeCard.Controls.Add(refreshButton);
             Button soundSettingsButton = CreateButton("打开声音设置", Color.FromArgb(48, 60, 77), TextColor);
-            soundSettingsButton.SetBounds(142, 166, 130, 30);
+            soundSettingsButton.SetBounds(142, 116, 130, 30);
             soundSettingsButton.Click += OpenSoundSettings;
             routeCard.Controls.Add(soundSettingsButton);
             Label routingHelp = CreateLabel("微信/QQ：输入跟随系统默认；输出继续选你的真实耳机", 8.8f, FontStyle.Bold, AccentColor);
-            routingHelp.SetBounds(286, 169, 426, 24);
+            routingHelp.SetBounds(286, 119, 426, 24);
             routeCard.Controls.Add(routingHelp);
 
-            Panel mixCard = CreateCard(24, 440, 742, 116);
+            Panel mixCard = CreateCard(24, 370, 742, 116);
             Controls.Add(mixCard);
             Label mixTitle = CreateLabel("③ 混音音量", 11.5f, FontStyle.Bold, TextColor);
             mixTitle.SetBounds(16, 10, 180, 25);
@@ -175,42 +163,35 @@ namespace VoiceDuck
             _autoSwitchMicrophoneCheck.Text = "自动切换并恢复系统默认麦克风";
             _autoSwitchMicrophoneCheck.ForeColor = TextColor;
             _autoSwitchMicrophoneCheck.BackColor = Color.Transparent;
-            _autoSwitchMicrophoneCheck.SetBounds(28, 568, 350, 28);
+            _autoSwitchMicrophoneCheck.SetBounds(28, 498, 350, 28);
             _autoSwitchMicrophoneCheck.CheckedChanged += AutoSwitchMicrophoneChanged;
             Controls.Add(_autoSwitchMicrophoneCheck);
 
-            _routingCheck = new CheckBox();
-            _routingCheck.Text = "我已确认：通话输出仍是真实耳机";
-            _routingCheck.ForeColor = TextColor;
-            _routingCheck.BackColor = Color.Transparent;
-            _routingCheck.SetBounds(400, 568, 360, 28);
-            Controls.Add(_routingCheck);
-
             _startButton = CreateButton("开始分享", AccentColor, Color.White);
-            _startButton.SetBounds(28, 605, 190, 42);
+            _startButton.SetBounds(28, 535, 190, 42);
             _startButton.Font = new Font("Segoe UI", 9.2f, FontStyle.Bold, GraphicsUnit.Point);
             _startButton.Click += ToggleSharing;
             Controls.Add(_startButton);
             _pauseButton = CreateButton("暂停播放声", Color.FromArgb(48, 60, 77), TextColor);
-            _pauseButton.SetBounds(228, 605, 150, 42);
+            _pauseButton.SetBounds(228, 535, 150, 42);
             _pauseButton.Click += delegate { _engine.TogglePause(); };
             Controls.Add(_pauseButton);
             UpdateShareToggleButtonAppearance(false);
 
             _shareStatus = CreateLabel("尚未开始分享", 9.0f, FontStyle.Bold, SubtleColor);
-            _shareStatus.SetBounds(482, 582, 280, 26);
+            _shareStatus.SetBounds(482, 512, 280, 26);
             _shareStatus.TextAlign = ContentAlignment.MiddleRight;
             Controls.Add(_shareStatus);
             _timeLabel = CreateLabel("实时监听延迟约 350 ms", 8.5f, FontStyle.Regular, SubtleColor);
-            _timeLabel.SetBounds(482, 610, 280, 22);
+            _timeLabel.SetBounds(482, 540, 280, 22);
             _timeLabel.TextAlign = ContentAlignment.MiddleRight;
             Controls.Add(_timeLabel);
-            _microphoneMeter = CreateMeter(482, 640, 132);
-            _musicMeter = CreateMeter(626, 640, 132);
+            _microphoneMeter = CreateMeter(482, 570, 132);
+            _musicMeter = CreateMeter(626, 570, 132);
             Controls.Add(_microphoneMeter);
             Controls.Add(_musicMeter);
             Label meterLabels = CreateLabel("麦克风电平                         播放声电平", 7.8f, FontStyle.Regular, SubtleColor);
-            meterLabels.SetBounds(482, 666, 278, 20);
+            meterLabels.SetBounds(482, 596, 278, 20);
             Controls.Add(meterLabels);
         }
 
@@ -365,8 +346,6 @@ namespace VoiceDuck
                 AudioEndpointChoice microphone = _microphoneBox.SelectedItem as AudioEndpointChoice;
                 AudioEndpointChoice monitor = _monitorBox.SelectedItem as AudioEndpointChoice;
                 if (microphone == null || monitor == null) throw new InvalidOperationException("请选择真实麦克风和正在播放的设备。");
-                if (!_routingCheck.Checked)
-                    throw new InvalidOperationException("请先确认微信/QQ 的输入与输出路由，避免对方听不到声音或产生回声。");
 
                 _settings.ShareMicrophoneDevice = microphone.Id;
                 _settings.ShareMonitorDevice = monitor.Id;
@@ -484,7 +463,6 @@ namespace VoiceDuck
             _pauseButton.Enabled = status.Running;
             _pauseButton.Text = status.Paused ? "继续播放声" : "暂停播放声";
             _autoSwitchMicrophoneCheck.Enabled = !status.Running;
-            _routingCheck.Enabled = !status.Running;
             UpdateShareToggleButtonAppearance(status.Running);
         }
 
