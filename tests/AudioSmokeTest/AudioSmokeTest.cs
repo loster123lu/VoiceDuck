@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace VoiceDuck
@@ -47,15 +48,16 @@ namespace VoiceDuck
                 var defaultMicrophoneController = new DefaultCaptureEndpointController();
                 defaultMicrophoneController.ProbePolicyAccess();
                 Console.WriteLine("DEFAULT_MICROPHONE_SWITCH_POLICY=True");
-                Console.WriteLine("DEFAULT_MICROPHONE_CONSOLE=" +
-                    defaultMicrophoneController.GetDefaultEndpointId(DefaultMicrophoneRole.Console));
-                Console.WriteLine("DEFAULT_MICROPHONE_MULTIMEDIA=" +
-                    defaultMicrophoneController.GetDefaultEndpointId(DefaultMicrophoneRole.Multimedia));
-                Console.WriteLine("DEFAULT_MICROPHONE_COMMUNICATIONS=" +
-                    defaultMicrophoneController.GetDefaultEndpointId(DefaultMicrophoneRole.Communications));
-                PrintEndpointState(
-                    "DEFAULT_MICROPHONE",
-                    defaultMicrophoneController.GetDefaultEndpointId(DefaultMicrophoneRole.Multimedia));
+                string consoleMicrophone = GetDefaultEndpointIdOrEmpty(
+                    defaultMicrophoneController, DefaultMicrophoneRole.Console);
+                string multimediaMicrophone = GetDefaultEndpointIdOrEmpty(
+                    defaultMicrophoneController, DefaultMicrophoneRole.Multimedia);
+                string communicationsMicrophone = GetDefaultEndpointIdOrEmpty(
+                    defaultMicrophoneController, DefaultMicrophoneRole.Communications);
+                Console.WriteLine("DEFAULT_MICROPHONE_CONSOLE=" + consoleMicrophone);
+                Console.WriteLine("DEFAULT_MICROPHONE_MULTIMEDIA=" + multimediaMicrophone);
+                Console.WriteLine("DEFAULT_MICROPHONE_COMMUNICATIONS=" + communicationsMicrophone);
+                PrintEndpointState("DEFAULT_MICROPHONE", multimediaMicrophone);
                 if (cable.Ready) PrintEndpointState("VBCABLE_CAPTURE", cable.CaptureId);
                 hearingProtection = new HearingProtectionService(AppSettings.CreateDefault());
                 hearingProtection.Start();
@@ -78,6 +80,21 @@ namespace VoiceDuck
             {
                 if (hearingProtection != null) hearingProtection.Dispose();
                 if (service != null) service.Dispose();
+            }
+        }
+
+        private static string GetDefaultEndpointIdOrEmpty(
+            DefaultCaptureEndpointController controller,
+            DefaultMicrophoneRole role)
+        {
+            try
+            {
+                return controller.GetDefaultEndpointId(role);
+            }
+            catch (COMException exception)
+            {
+                if (exception.HResult != unchecked((int)0x80070490)) throw;
+                return String.Empty;
             }
         }
 
