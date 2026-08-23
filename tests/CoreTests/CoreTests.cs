@@ -230,6 +230,16 @@ namespace VoiceDuck
                    Math.Abs(buffer[0] - 0.4f) < 0.001f && Math.Abs(buffer[1] + 0.4f) < 0.001f,
                 "share gain provider must scale every sample");
 
+            var dualMono = new DualMonoSampleProvider(
+                new ArraySampleProvider(0.0f, 0.7f, -0.6f, 0.0f));
+            buffer = new float[4];
+            Assert(dualMono.Read(buffer, 0, buffer.Length) == 4 &&
+                   Math.Abs(buffer[0] - 0.7f) < 0.001f &&
+                   Math.Abs(buffer[1] - 0.7f) < 0.001f &&
+                   Math.Abs(buffer[2] + 0.6f) < 0.001f &&
+                   Math.Abs(buffer[3] + 0.6f) < 0.001f,
+                "shared microphone must reach both virtual-cable channels");
+
             var pause = new PauseSampleProvider(new ArraySampleProvider(0.6f));
             pause.Paused = true;
             buffer = new float[1];
@@ -259,6 +269,17 @@ namespace VoiceDuck
             liveGate.RemoteAudioBlocked = false;
             Assert(liveGate.Read(buffer, 0, 1) == 1 && Math.Abs(buffer[0] - 0.8f) < 0.001f,
                 "echo protection must consume blocked audio instead of replaying it later");
+
+            float[] music = new float[9600];
+            for (int index = 0; index < music.Length; index++) music[index] = 0.8f;
+            float voicePeak = 0.2f;
+            var voicePriority = new VoicePrioritySampleProvider(
+                new ArraySampleProvider(music),
+                delegate { return voicePeak; });
+            buffer = new float[music.Length];
+            Assert(voicePriority.Read(buffer, 0, buffer.Length) == music.Length &&
+                   voicePriority.Ducking && Math.Abs(buffer[buffer.Length - 1]) < 0.30f,
+                "local speech must automatically make the shared music yield");
 
             var limiter = new HardLimiterSampleProvider(new ArraySampleProvider(2.0f, -2.0f), 0.96f);
             buffer = new float[2];

@@ -438,6 +438,12 @@ namespace VoiceDuck
                     _shareStatus.ForeColor = OrangeColor;
                     _timeLabel.Text = "回声保护正在工作";
                 }
+                else if (status.LocalVoicePrioritized)
+                {
+                    _shareStatus.Text = "正在分享 · 你的讲话优先";
+                    _shareStatus.ForeColor = GreenColor;
+                    _timeLabel.Text = "已自动压低播放声，确保对方听清麦克风";
+                }
                 else
                 {
                     _shareStatus.Text = "正在分享设备声音";

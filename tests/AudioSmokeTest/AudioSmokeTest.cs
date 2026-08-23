@@ -53,6 +53,10 @@ namespace VoiceDuck
                     defaultMicrophoneController.GetDefaultEndpointId(DefaultMicrophoneRole.Multimedia));
                 Console.WriteLine("DEFAULT_MICROPHONE_COMMUNICATIONS=" +
                     defaultMicrophoneController.GetDefaultEndpointId(DefaultMicrophoneRole.Communications));
+                PrintEndpointState(
+                    "DEFAULT_MICROPHONE",
+                    defaultMicrophoneController.GetDefaultEndpointId(DefaultMicrophoneRole.Multimedia));
+                if (cable.Ready) PrintEndpointState("VBCABLE_CAPTURE", cable.CaptureId);
                 hearingProtection = new HearingProtectionService(AppSettings.CreateDefault());
                 hearingProtection.Start();
                 Thread.Sleep(150);
@@ -75,6 +79,30 @@ namespace VoiceDuck
                 if (hearingProtection != null) hearingProtection.Dispose();
                 if (service != null) service.Dispose();
             }
+        }
+
+        private static void PrintEndpointState(string label, string endpointId)
+        {
+            using (var endpoint = AudioEndpointCatalog.OpenDevice(endpointId))
+            {
+                float peak = 0.0f;
+                for (int index = 0; index < 12; index++)
+                {
+                    peak = Math.Max(peak, endpoint.AudioMeterInformation.MasterPeakValue);
+                    Thread.Sleep(50);
+                }
+                Console.WriteLine(label + "_NAME=" + endpoint.FriendlyName);
+                Console.WriteLine(label + "_MUTED=" + endpoint.AudioEndpointVolume.Mute);
+                Console.WriteLine(label + "_VOLUME=" +
+                    endpoint.AudioEndpointVolume.MasterVolumeLevelScalar.ToString("0.000"));
+                Console.WriteLine(label + "_PEAK_DB=" + PeakToDb(peak).ToString("0.0"));
+            }
+        }
+
+        private static float PeakToDb(float peak)
+        {
+            if (peak <= 0.000001f) return -96.0f;
+            return (float)(20.0 * Math.Log10(peak));
         }
     }
 }

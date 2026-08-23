@@ -19,6 +19,7 @@ namespace VoiceDuck
         public bool Running { get; set; }
         public bool Paused { get; set; }
         public bool RemoteAudioBlocked { get; set; }
+        public bool LocalVoicePrioritized { get; set; }
         public string SourceName { get; set; }
         public string LastError { get; set; }
         public float MicrophonePeak { get; set; }
@@ -51,6 +52,8 @@ namespace VoiceDuck
         private GainSampleProvider _playbackGain;
         private PeakSampleProvider _microphoneMeter;
         private PeakSampleProvider _playbackMeter;
+        private VoicePrioritySampleProvider _voicePriority;
+        private ManualResetEventSlim _microphoneDataReady;
         private Thread _echoProtectionThread;
         private volatile bool _echoProtectionStopRequested;
         private volatile bool _remoteAudioBlocked;
@@ -95,6 +98,7 @@ namespace VoiceDuck
                     _sourceName = _monitorDevice.FriendlyName ?? "当前播放设备";
 
                     _microphoneCapture = new WasapiCapture(_microphoneDevice, true, 60);
+                    _microphoneDataReady = new ManualResetEventSlim(false);
                     _microphoneBuffer = CreateCaptureBuffer(_microphoneCapture.WaveFormat, 900);
                     _microphoneCapture.DataAvailable += MicrophoneDataAvailable;
                     _microphoneCapture.RecordingStopped += MicrophoneRecordingStopped;
@@ -117,11 +121,14 @@ namespace VoiceDuck
                         PlaybackDelayMilliseconds);
                     _playbackGate = new LiveAudioGateSampleProvider(delayedPlayback);
                     _microphoneGain = new GainSampleProvider(
-                        _microphoneResampler.ToSampleProvider(),
+                        new DualMonoSampleProvider(_microphoneResampler.ToSampleProvider()),
                         options.MicrophoneGain);
                     _playbackGain = new GainSampleProvider(_playbackGate, options.MusicGain);
                     _microphoneMeter = new PeakSampleProvider(_microphoneGain);
-                    _playbackMeter = new PeakSampleProvider(_playbackGain);
+                    _voicePriority = new VoicePrioritySampleProvider(
+                        _playbackGain,
+                        delegate { return _microphoneMeter.Peak; });
+                    _playbackMeter = new PeakSampleProvider(_voicePriority);
 
                     var outgoingMixer = new MixingSampleProvider(TargetFormat) { ReadFully = true };
                     outgoingMixer.AddMixerInput(_microphoneMeter);
@@ -137,6 +144,9 @@ namespace VoiceDuck
                     _cableOutput.Init(limiter.ToWaveProvider());
 
                     _microphoneCapture.StartRecording();
+                    if (!_microphoneDataReady.Wait(1200))
+                        throw new InvalidOperationException(
+                            "真实麦克风没有返回音频数据，尚未切换通话输入。请刷新设备后重试。");
                     _playbackCapture.StartRecording();
                     StartEchoProtection();
                     _cableOutput.Play();
@@ -178,6 +188,7 @@ namespace VoiceDuck
                     Running = _running,
                     Paused = _paused,
                     RemoteAudioBlocked = _remoteAudioBlocked,
+                    LocalVoicePrioritized = _voicePriority != null && _voicePriority.Ducking,
                     SourceName = _sourceName,
                     LastError = _lastError,
                     MicrophonePeak = _microphoneMeter == null ? 0.0f : _microphoneMeter.Peak,
@@ -256,6 +267,11 @@ namespace VoiceDuck
 
         private void MicrophoneDataAvailable(object sender, WaveInEventArgs eventArgs)
         {
+            ManualResetEventSlim ready = _microphoneDataReady;
+            if (ready != null && eventArgs.BytesRecorded > 0)
+            {
+                try { ready.Set(); } catch (ObjectDisposedException) { }
+            }
             AddCaptureData(_microphoneBuffer, eventArgs, "麦克风");
         }
 
@@ -342,6 +358,11 @@ namespace VoiceDuck
             DisposeAndClear(ref _microphoneDevice);
             DisposeAndClear(ref _monitorDevice);
             DisposeAndClear(ref _cableRenderDevice);
+            if (_microphoneDataReady != null)
+            {
+                try { _microphoneDataReady.Dispose(); } catch { }
+                _microphoneDataReady = null;
+            }
             _microphoneBuffer = null;
             _playbackBuffer = null;
             _playbackGate = null;
@@ -349,6 +370,7 @@ namespace VoiceDuck
             _playbackGain = null;
             _microphoneMeter = null;
             _playbackMeter = null;
+            _voicePriority = null;
             _remoteAudioBlocked = false;
             Interlocked.Exchange(ref _remoteBlockUntilTicks, 0L);
         }
@@ -359,6 +381,38 @@ namespace VoiceDuck
             value = null;
             if (disposable == null) return;
             try { disposable.Dispose(); } catch { }
+        }
+    }
+
+    internal sealed class DualMonoSampleProvider : ISampleProvider
+    {
+        private readonly ISampleProvider _source;
+
+        public DualMonoSampleProvider(ISampleProvider source)
+        {
+            if (source == null) throw new ArgumentNullException("source");
+            if (source.WaveFormat.Channels != 2)
+                throw new ArgumentException("双单声道转换需要双声道输入。", "source");
+            _source = source;
+        }
+
+        public WaveFormat WaveFormat { get { return _source.WaveFormat; } }
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int read = _source.Read(buffer, offset, count);
+            int completeFrames = read - read % 2;
+            for (int index = 0; index < completeFrames; index += 2)
+            {
+                int leftIndex = offset + index;
+                int rightIndex = leftIndex + 1;
+                float left = buffer[leftIndex];
+                float right = buffer[rightIndex];
+                float mono = Math.Abs(left) >= Math.Abs(right) ? left : right;
+                buffer[leftIndex] = mono;
+                buffer[rightIndex] = mono;
+            }
+            return read;
         }
     }
 
@@ -493,6 +547,53 @@ namespace VoiceDuck
                 peak = Math.Max(peak, Math.Abs(buffer[offset + index]));
             _peak = peak;
             return read;
+        }
+    }
+
+    internal sealed class VoicePrioritySampleProvider : ISampleProvider
+    {
+        internal const float VoiceThreshold = 0.006f;
+        internal const float DuckGain = 0.24f;
+
+        private readonly ISampleProvider _source;
+        private readonly Func<float> _voicePeakProvider;
+        private readonly float _attackCoefficient;
+        private readonly float _releaseCoefficient;
+        private volatile float _currentGain = 1.0f;
+
+        public VoicePrioritySampleProvider(ISampleProvider source, Func<float> voicePeakProvider)
+        {
+            if (source == null) throw new ArgumentNullException("source");
+            if (voicePeakProvider == null) throw new ArgumentNullException("voicePeakProvider");
+            _source = source;
+            _voicePeakProvider = voicePeakProvider;
+            int samplesPerSecond = source.WaveFormat.SampleRate * source.WaveFormat.Channels;
+            _attackCoefficient = TimeCoefficient(samplesPerSecond, 20);
+            _releaseCoefficient = TimeCoefficient(samplesPerSecond, 420);
+        }
+
+        public WaveFormat WaveFormat { get { return _source.WaveFormat; } }
+        public bool Ducking { get { return _currentGain < 0.90f; } }
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int read = _source.Read(buffer, offset, count);
+            float targetGain = _voicePeakProvider() >= VoiceThreshold ? DuckGain : 1.0f;
+            float currentGain = _currentGain;
+            float coefficient = targetGain < currentGain ? _attackCoefficient : _releaseCoefficient;
+            for (int index = 0; index < read; index++)
+            {
+                currentGain += (targetGain - currentGain) * coefficient;
+                buffer[offset + index] *= currentGain;
+            }
+            _currentGain = currentGain;
+            return read;
+        }
+
+        private static float TimeCoefficient(int samplesPerSecond, int milliseconds)
+        {
+            double samples = Math.Max(1.0, samplesPerSecond * milliseconds / 1000.0);
+            return (float)(1.0 - Math.Exp(-1.0 / samples));
         }
     }
 
